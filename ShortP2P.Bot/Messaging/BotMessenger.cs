@@ -10,6 +10,8 @@ namespace ShortP2P.Bot.Messaging;
 
 public sealed class BotMessenger : IBotMessenger
 {
+    private const string AllServersUnavailableMessage = "ALL SERVERS ARE UNAVAILABLE!";
+
     private static readonly TimeSpan[] PoolRetryDelays =
     {
         TimeSpan.FromSeconds(1),
@@ -38,7 +40,7 @@ public sealed class BotMessenger : IBotMessenger
                 {
                     _logger.LogWarning(
                         exception,
-                        "Server pool pass failed (retry {RetryAttempt} after {Delay}).",
+                        "Server pool pass failed (retry {RetryAttempt} after {Delay})",
                         retryAttempt,
                         delay);
                 });
@@ -84,23 +86,90 @@ public sealed class BotMessenger : IBotMessenger
 
         await _servers.UpsertAsync(entity, cancellationToken).ConfigureAwait(false);
 
-        _logger.LogInformation("Bot registered on {BaseUrl}; server added/updated in pool.", baseUrl);
+        _logger.LogInformation("Bot registered on {BaseUrl}; server added/updated in pool", baseUrl);
         return response;
     }
 
-    public Task<BotSendMessagesResponse> SendMessagesAsync(
+    public async Task<BotSendMessagesResponse> SendMessagesAsync(
         Uri serverBaseUrl,
         BotSendMessagesRequest request,
         CancellationToken cancellationToken = default)
-        => _apiClient.SendMessagesAsync(serverBaseUrl, request, cancellationToken);
+    {
+        if (request is null) throw new ArgumentNullException(nameof(request));
 
-    public Task<BotWaitForIncomeMessagesResponse> WaitForIncomeMessagesAsync(
+        _logger.LogDebug(
+            "SendMessages enter: server={Server}, requestId={RequestId}, messages={MessageCount}",
+            serverBaseUrl,
+            request.RequestId,
+            request.Messages?.Count ?? 0);
+
+        try
+        {
+            var response = await _apiClient.SendMessagesAsync(serverBaseUrl, request, cancellationToken)
+                .ConfigureAwait(false);
+
+            _logger.LogDebug(
+                "SendMessages exit: server={Server}, requestId={RequestId}",
+                serverBaseUrl,
+                response.RequestId);
+
+            return response;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "SendMessages failed: server={Server}, requestId={RequestId}", serverBaseUrl, request.RequestId);
+            await TryMarkServerUnavailableByUrlAsync(serverBaseUrl, ex, cancellationToken).ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    public async Task<BotWaitForIncomeMessagesResponse> WaitForIncomeMessagesAsync(
         Uri serverBaseUrl,
         BotWaitForIncomeMessagesRequest request,
         CancellationToken cancellationToken = default)
-        => _apiClient.WaitForIncomeMessagesAsync(serverBaseUrl, request, cancellationToken);
+    {
+        if (request is null) throw new ArgumentNullException(nameof(request));
 
-    public Task<BotSendMessagesResponse> SendMessagesViaPoolAsync(
+        _logger.LogDebug(
+            "WaitForIncomeMessages enter: server={Server}, requestId={RequestId}, timeoutSeconds={TimeoutSeconds}",
+            serverBaseUrl,
+            request.RequestId,
+            request.TimeoutSeconds);
+
+        try
+        {
+            var response = await _apiClient.WaitForIncomeMessagesAsync(serverBaseUrl, request, cancellationToken)
+                .ConfigureAwait(false);
+
+            _logger.LogDebug(
+                "WaitForIncomeMessages exit: server={Server}, requestId={RequestId}, messages={MessageCount}",
+                serverBaseUrl,
+                response.RequestId,
+                response.Messages?.Count ?? 0);
+
+            return response;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "WaitForIncomeMessages failed: server={Server}, requestId={RequestId}",
+                serverBaseUrl,
+                request.RequestId);
+            await TryMarkServerUnavailableByUrlAsync(serverBaseUrl, ex, cancellationToken).ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    public async Task<BotSendMessagesResponse> SendMessagesViaPoolAsync(
         string requestId,
         IReadOnlyList<BotClientMessageDto> messages,
         CancellationToken cancellationToken = default)
@@ -110,27 +179,51 @@ public sealed class BotMessenger : IBotMessenger
         if (messages is null)
             throw new ArgumentNullException(nameof(messages));
 
-        return _poolRetryPolicy.ExecuteAsync(
-            ct => ExecuteAgainstPoolAsync(
-                async (server, token) =>
-                {
-                    var request = new BotSendMessagesRequest
-                    {
-                        RequestId = requestId,
-                        BotNetworkId = server.NetworkId,
-                        BotKey = server.BotKey,
-                        Messages = messages
-                    };
+        _logger.LogDebug(
+            "SendMessagesViaPool enter: requestId={RequestId}, messages={MessageCount}",
+            requestId,
+            messages.Count);
 
-                    return await _apiClient
-                        .SendMessagesAsync(new Uri(server.BaseUrl, UriKind.Absolute), request, token)
-                        .ConfigureAwait(false);
-                },
-                ct),
-            cancellationToken);
+        try
+        {
+            var response = await _poolRetryPolicy.ExecuteAsync(
+                ct => ExecuteAgainstPoolAsync(
+                    async (server, token) =>
+                    {
+                        var request = new BotSendMessagesRequest
+                        {
+                            RequestId = requestId,
+                            BotNetworkId = server.NetworkId,
+                            BotKey = server.BotKey,
+                            Messages = messages
+                        };
+
+                        return await _apiClient
+                            .SendMessagesAsync(new Uri(server.BaseUrl, UriKind.Absolute), request, token)
+                            .ConfigureAwait(false);
+                    },
+                    operationName: "SendMessages",
+                    ct),
+                cancellationToken).ConfigureAwait(false);
+
+            _logger.LogDebug(
+                "SendMessagesViaPool exit: requestId={RequestId}",
+                response.RequestId);
+
+            return response;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "SendMessagesViaPool failed: requestId={RequestId}", requestId);
+            throw;
+        }
     }
 
-    public Task<BotWaitForIncomeMessagesResponse> WaitForIncomeMessagesViaPoolAsync(
+    public async Task<BotWaitForIncomeMessagesResponse> WaitForIncomeMessagesViaPoolAsync(
         string requestId,
         int? timeoutSeconds = null,
         CancellationToken cancellationToken = default)
@@ -138,33 +231,62 @@ public sealed class BotMessenger : IBotMessenger
         if (string.IsNullOrWhiteSpace(requestId))
             throw new ArgumentException("Request id is required.", nameof(requestId));
 
-        return _poolRetryPolicy.ExecuteAsync(
-            ct => ExecuteAgainstPoolAsync(
-                async (server, token) =>
-                {
-                    var request = new BotWaitForIncomeMessagesRequest
-                    {
-                        RequestId = requestId,
-                        BotNetworkId = server.NetworkId,
-                        BotKey = server.BotKey,
-                        TimeoutSeconds = timeoutSeconds
-                    };
+        _logger.LogDebug(
+            "WaitForIncomeMessagesViaPool enter: requestId={RequestId}, timeoutSeconds={TimeoutSeconds}",
+            requestId,
+            timeoutSeconds);
 
-                    return await _apiClient
-                        .WaitForIncomeMessagesAsync(new Uri(server.BaseUrl, UriKind.Absolute), request, token)
-                        .ConfigureAwait(false);
-                },
-                ct),
-            cancellationToken);
+        try
+        {
+            var response = await _poolRetryPolicy.ExecuteAsync(
+                ct => ExecuteAgainstPoolAsync(
+                    async (server, token) =>
+                    {
+                        var request = new BotWaitForIncomeMessagesRequest
+                        {
+                            RequestId = requestId,
+                            BotNetworkId = server.NetworkId,
+                            BotKey = server.BotKey,
+                            TimeoutSeconds = timeoutSeconds
+                        };
+
+                        return await _apiClient
+                            .WaitForIncomeMessagesAsync(new Uri(server.BaseUrl, UriKind.Absolute), request, token)
+                            .ConfigureAwait(false);
+                    },
+                    operationName: "WaitForIncomeMessages",
+                    ct),
+                cancellationToken).ConfigureAwait(false);
+
+            _logger.LogDebug(
+                "WaitForIncomeMessagesViaPool exit: requestId={RequestId}, messages={MessageCount}",
+                response.RequestId,
+                response.Messages?.Count ?? 0);
+
+            return response;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "WaitForIncomeMessagesViaPool failed: requestId={RequestId}", requestId);
+            throw;
+        }
     }
 
     private async Task<T> ExecuteAgainstPoolAsync<T>(
         Func<MessengerServerEntity, CancellationToken, Task<T>> operation,
+        string operationName,
         CancellationToken cancellationToken)
     {
         var servers = await _servers.GetAvailableOrderedAsync(cancellationToken).ConfigureAwait(false);
         if (servers.Count == 0)
+        {
+            _logger.LogInformation(AllServersUnavailableMessage);
             throw new InvalidOperationException("Messenger server pool is empty or has no available servers.");
+        }
 
         Exception? lastError = null;
 
@@ -186,19 +308,46 @@ public sealed class BotMessenger : IBotMessenger
             catch (Exception ex)
             {
                 lastError = ex;
-                _logger.LogWarning(ex, "Operation failed on server {BaseUrl} (id={ServerId}).", server.BaseUrl, server.Id);
+                _logger.LogError(
+                    ex,
+                    "{Operation} failed on server {BaseUrl} (id={ServerId})",
+                    operationName,
+                    server.BaseUrl,
+                    server.Id);
 
                 if (ShouldMarkUnavailable(ex))
                 {
                     await _servers.MarkUnavailableAsync(server.Id, ex.Message, cancellationToken)
                         .ConfigureAwait(false);
+                    _logger.LogInformation(
+                        "Server unavailable: {BaseUrl} (id={ServerId})",
+                        server.BaseUrl,
+                        server.Id);
                 }
             }
         }
 
+        _logger.LogInformation(AllServersUnavailableMessage);
         throw new AggregateException(
             "All available messenger servers failed for this pool pass.",
             lastError is null ? Array.Empty<Exception>() : new[] { lastError });
+    }
+
+    private async Task TryMarkServerUnavailableByUrlAsync(
+        Uri serverBaseUrl,
+        Exception exception,
+        CancellationToken cancellationToken)
+    {
+        if (!ShouldMarkUnavailable(exception))
+            return;
+
+        var baseUrl = NormalizeBaseUrl(serverBaseUrl);
+        var server = await _servers.GetByBaseUrlAsync(baseUrl, cancellationToken).ConfigureAwait(false);
+        if (server is null)
+            return;
+
+        await _servers.MarkUnavailableAsync(server.Id, exception.Message, cancellationToken).ConfigureAwait(false);
+        _logger.LogInformation("Server unavailable: {BaseUrl} (id={ServerId})", server.BaseUrl, server.Id);
     }
 
     private static bool ShouldMarkUnavailable(Exception exception)
