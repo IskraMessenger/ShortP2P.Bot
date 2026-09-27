@@ -8,4 +8,10 @@ public sealed class BotClientMessageDto
 {
     public string NetworkId { get; set; } = string.Empty;
     public string EncryptedMessageBase64 { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Optional end-to-end correlation id (client ↔ bot); max <see cref="BotLimits.MaxCorrelationIdLength"/> chars;
+    /// relayed unchanged by the server.
+    /// </summary>
+    public string? CorrelationId { get; set; }
 }

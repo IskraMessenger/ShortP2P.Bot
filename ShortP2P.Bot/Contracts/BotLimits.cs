@@ -9,4 +9,7 @@ public static class BotLimits
 
     /// <summary>Exact length of bot key (base64).</summary>
     public const int BotKeyLength = 64;
+
+    /// <summary>Max length of optional end-to-end <c>correlationId</c> on client ↔ bot messages.</summary>
+    public const int MaxCorrelationIdLength = 32;
 }
