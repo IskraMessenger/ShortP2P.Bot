@@ -12,7 +12,9 @@ namespace ShortP2P.Bot.Jobs;
 /// </summary>
 public sealed class UnavailableServersHealthCheckJob : BackgroundService
 {
-    private static readonly TimeSpan DefaultInterval = TimeSpan.FromMinutes(3);
+    public const int DefaultIntervalMinutes = 3;
+
+    public static readonly TimeSpan DefaultInterval = TimeSpan.FromMinutes(DefaultIntervalMinutes);
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<UnavailableServersHealthCheckJob> _logger;

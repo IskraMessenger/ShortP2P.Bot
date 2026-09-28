@@ -28,7 +28,7 @@ public sealed class UnavailableServersHealthCheckJobTests
             var job = new UnavailableServersHealthCheckJob(
                 services.GetRequiredService<IServiceScopeFactory>(),
                 NullLogger<UnavailableServersHealthCheckJob>.Instance,
-                TimeSpan.FromMinutes(3));
+                UnavailableServersHealthCheckJob.DefaultInterval);
 
             await job.RunOnceAsync(CancellationToken.None);
 
@@ -59,7 +59,7 @@ public sealed class UnavailableServersHealthCheckJobTests
             var job = new UnavailableServersHealthCheckJob(
                 services.GetRequiredService<IServiceScopeFactory>(),
                 NullLogger<UnavailableServersHealthCheckJob>.Instance,
-                TimeSpan.FromMinutes(3));
+                UnavailableServersHealthCheckJob.DefaultInterval);
 
             await job.RunOnceAsync(CancellationToken.None);
 
