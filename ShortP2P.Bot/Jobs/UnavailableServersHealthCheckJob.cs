@@ -69,7 +69,7 @@ public sealed class UnavailableServersHealthCheckJob : BackgroundService
         }
     }
 
-    private async Task RunOnceAsync(CancellationToken cancellationToken)
+    internal async Task RunOnceAsync(CancellationToken cancellationToken)
     {
         using var scope = _scopeFactory.CreateScope();
         var servers = scope.ServiceProvider.GetRequiredService<IMessengerServerRepository>();
