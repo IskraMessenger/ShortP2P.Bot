@@ -32,7 +32,7 @@ public sealed class InMemoryMessengerServerRepository : IMessengerServerReposito
         lock (_sync)
         {
             var list = MessengerServerOrdering
-                .OrderForMessaging(_byId.Values.Where(s => s.IsAvailable))
+                .OrderForMessaging(_byId.Values.Where(s => s.IsAvailable && !s.IsBlocked))
                 .Select(Clone)
                 .ToArray();
             return Task.FromResult<IReadOnlyList<MessengerServerEntity>>(list);
@@ -44,7 +44,7 @@ public sealed class InMemoryMessengerServerRepository : IMessengerServerReposito
         lock (_sync)
         {
             var list = _byId.Values
-                .Where(s => !s.IsAvailable)
+                .Where(s => !s.IsAvailable && !s.IsBlocked)
                 .OrderBy(s => s.Id)
                 .Select(Clone)
                 .ToArray();
@@ -91,8 +91,23 @@ public sealed class InMemoryMessengerServerRepository : IMessengerServerReposito
     {
         lock (_sync)
         {
+            if (_byId.TryGetValue(id, out var entity) && !entity.IsBlocked)
+            {
+                entity.IsAvailable = false;
+                entity.LastError = error;
+            }
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task MarkBlockedAsync(long id, string? error, CancellationToken cancellationToken = default)
+    {
+        lock (_sync)
+        {
             if (_byId.TryGetValue(id, out var entity))
             {
+                entity.IsBlocked = true;
                 entity.IsAvailable = false;
                 entity.LastError = error;
             }
@@ -105,7 +120,7 @@ public sealed class InMemoryMessengerServerRepository : IMessengerServerReposito
     {
         lock (_sync)
         {
-            if (_byId.TryGetValue(id, out var entity))
+            if (_byId.TryGetValue(id, out var entity) && !entity.IsBlocked)
             {
                 entity.IsAvailable = true;
                 entity.LastError = null;
@@ -120,7 +135,7 @@ public sealed class InMemoryMessengerServerRepository : IMessengerServerReposito
     {
         lock (_sync)
         {
-            if (_byId.TryGetValue(id, out var entity))
+            if (_byId.TryGetValue(id, out var entity) && !entity.IsBlocked)
             {
                 entity.LastSuccessfulAtUtc = successfulAtUtc;
                 entity.IsAvailable = true;
@@ -140,7 +155,7 @@ public sealed class InMemoryMessengerServerRepository : IMessengerServerReposito
     {
         lock (_sync)
         {
-            if (_byId.TryGetValue(id, out var entity))
+            if (_byId.TryGetValue(id, out var entity) && !entity.IsBlocked)
             {
                 entity.IsAvailable = isAvailable;
                 entity.LastHealthCheckAtUtc = checkedAtUtc;
@@ -156,7 +171,10 @@ public sealed class InMemoryMessengerServerRepository : IMessengerServerReposito
         Id = source.Id,
         BaseUrl = source.BaseUrl,
         NetworkId = source.NetworkId,
+        BotName = source.BotName,
         BotKey = source.BotKey,
+        ServerFingerprintSha256 = source.ServerFingerprintSha256,
+        IsBlocked = source.IsBlocked,
         IsAvailable = source.IsAvailable,
         LastSuccessfulAtUtc = source.LastSuccessfulAtUtc,
         RegisteredAtUtc = source.RegisteredAtUtc,

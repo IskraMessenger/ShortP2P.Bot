@@ -7,6 +7,10 @@ public interface IMessengerServerApiClient
 {
     Task PingAsync(Uri serverBaseUrl, CancellationToken cancellationToken = default);
 
+    Task<ServerCertificateResponse> GetServerCertificateAsync(
+        Uri serverBaseUrl,
+        CancellationToken cancellationToken = default);
+
     Task<BotRegisterResponse> RegisterAsync(
         Uri serverBaseUrl,
         BotRegisterRequest request,
@@ -15,6 +19,11 @@ public interface IMessengerServerApiClient
     Task<BotLoginResponse> LoginAsync(
         Uri serverBaseUrl,
         BotLoginRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<BotRemoveResponse> RemoveAsync(
+        Uri serverBaseUrl,
+        BotRemoveRequest request,
         CancellationToken cancellationToken = default);
 
     Task<BotSendMessagesResponse> SendMessagesAsync(

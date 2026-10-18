@@ -25,7 +25,14 @@ public interface IMessengerServerRepository
     Task MarkUnavailableAsync(long id, string? error, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Permanently blocks the server after a certificate fingerprint mismatch.
+    /// Blocked servers stay out of the messaging pool and health-check recovery until re-registered.
+    /// </summary>
+    Task MarkBlockedAsync(long id, string? error, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Marks the server available again (clears last error; update last health-check timestamp).
+    /// Does not clear <see cref="Entities.MessengerServerEntity.IsBlocked"/>.
     /// </summary>
     Task MarkAvailableAsync(long id, CancellationToken cancellationToken = default);
 

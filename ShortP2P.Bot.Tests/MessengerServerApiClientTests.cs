@@ -28,7 +28,18 @@ public sealed class MessengerServerApiClientTests
     }
 
     [Fact]
-    public async Task Register_ReturnsIssuedBotKey()
+    public async Task GetServerCertificate_ReturnsFingerprint()
+    {
+        using var mock = MessengerServerMock.Start().SetupServerCertificate();
+        await using var host = BotTestHost.Create().Services;
+
+        var response = await host.Api().GetServerCertificateAsync(mock.BaseUri);
+
+        Assert.Equal(MessengerServerMock.DefaultServerFingerprint, response.FingerprintSha256);
+    }
+
+    [Fact]
+    public async Task Register_ReturnsIssuedBotKey_AndServerFingerprint()
     {
         using var mock = MessengerServerMock.Start().SetupRegister();
         await using var host = BotTestHost.Create().Services;
@@ -38,16 +49,18 @@ public sealed class MessengerServerApiClientTests
             NetworkId = "botNet",
             BotName = "echo",
             BotReadableName = "Echo Bot",
-            BotDescription = "test"
+            BotDescription = "test",
+            FingerprintSha256 = new string('c', 64)
         });
 
         Assert.Equal("botNet", response.NetworkId);
         Assert.Equal("echo", response.BotName);
         Assert.Equal(MessengerServerMock.DefaultBotKey, response.BotKey);
+        Assert.Equal(MessengerServerMock.DefaultServerFingerprint, response.ServerFingerprintSha256);
     }
 
     [Fact]
-    public async Task Login_ReturnsToken()
+    public async Task Login_ReturnsToken_AndServerFingerprint()
     {
         using var mock = MessengerServerMock.Start().SetupLogin();
         await using var host = BotTestHost.Create().Services;
@@ -56,11 +69,13 @@ public sealed class MessengerServerApiClientTests
         {
             NetworkId = "botNet",
             BotName = "echo",
-            BotKey = MessengerServerMock.DefaultBotKey
+            BotKey = MessengerServerMock.DefaultBotKey,
+            FingerprintSha256 = new string('c', 64)
         });
 
         Assert.Equal(MessengerServerMock.DefaultToken, response.Token);
         Assert.True(response.ExpiresAtUtc > DateTime.UtcNow);
+        Assert.Equal(MessengerServerMock.DefaultServerFingerprint, response.ServerFingerprintSha256);
     }
 
     [Fact]
@@ -90,6 +105,7 @@ public sealed class MessengerServerApiClientTests
         var log = mock.Server.LogEntries.Single(e =>
             e.RequestMessage.Path.Contains("send_messages", StringComparison.Ordinal));
         Assert.Contains("corr-42", log.RequestMessage.Body, StringComparison.Ordinal);
+        Assert.Contains("bot_server_interaction", log.RequestMessage.Path, StringComparison.Ordinal);
     }
 
     [Fact]
