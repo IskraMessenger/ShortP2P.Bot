@@ -15,14 +15,17 @@ internal sealed class EchoBotService : BackgroundService
     private readonly IMessengerServerRepository _servers;
     private readonly IRequestLog _requests;
     private readonly IBotCertificateStore _certificates;
+    private readonly SqliteMessageKeyStore _messageKeys;
     private readonly SampleBotOptions _options;
     private readonly ILogger<EchoBotService> _logger;
+    private string _privateKeyJson = "";
 
     public EchoBotService(
         IBotMessenger messenger,
         IMessengerServerRepository servers,
         IRequestLog requests,
         IBotCertificateStore certificates,
+        SqliteMessageKeyStore messageKeys,
         IOptions<SampleBotOptions> options,
         ILogger<EchoBotService> logger)
     {
@@ -30,6 +33,7 @@ internal sealed class EchoBotService : BackgroundService
         _servers = servers ?? throw new ArgumentNullException(nameof(servers));
         _requests = requests ?? throw new ArgumentNullException(nameof(requests));
         _certificates = certificates ?? throw new ArgumentNullException(nameof(certificates));
+        _messageKeys = messageKeys ?? throw new ArgumentNullException(nameof(messageKeys));
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
@@ -42,8 +46,11 @@ internal sealed class EchoBotService : BackgroundService
             var serverUri = RequireServerUri();
             RequireBotIdentity();
             var certificate = _certificates.GetOrCreate(_options.Bot.Name);
+            var keys = EnsureMessageKeys();
+            _privateKeyJson = keys.PrivateJson;
 
-            if (!await EnsureRegisteredAsync(serverUri, certificate.FingerprintSha256, stoppingToken).ConfigureAwait(false))
+            if (!await EnsureRegisteredAsync(serverUri, certificate.FingerprintSha256, keys.PublicJson, stoppingToken)
+                    .ConfigureAwait(false))
                 return;
 
             while (!stoppingToken.IsCancellationRequested)
@@ -77,35 +84,73 @@ internal sealed class EchoBotService : BackgroundService
         }
     }
 
+    private (string PublicJson, string PrivateJson) EnsureMessageKeys()
+    {
+        var existing = _messageKeys.TryGet();
+        if (existing is not null)
+        {
+            _logger.LogInformation("Using stored RSA message key pair");
+            return existing.Value;
+        }
+
+        var created = BotMessageCrypto.CreateRsaKeyPairJson();
+        _messageKeys.Save(created.PublicJson, created.PrivateJson);
+        _logger.LogInformation("Generated new RSA message key pair for client→bot encryption");
+        return created;
+    }
+
     private async Task<bool> EnsureRegisteredAsync(
         Uri serverUri,
         string fingerprintSha256,
+        string messagePublicKey,
         CancellationToken stoppingToken)
     {
         var baseUrl = serverUri.ToString().TrimEnd('/');
+        var bot = _options.Bot;
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            var existing = await _servers.GetByBaseUrlAsync(baseUrl, stoppingToken).ConfigureAwait(false);
-            if (existing is not null && !string.IsNullOrEmpty(existing.BotKey))
-            {
-                _logger.LogInformation("Using bot key stored for {BaseUrl}", baseUrl);
-                return true;
-            }
-
             try
             {
-                var bot = _options.Bot;
+                var existing = await _servers.GetByBaseUrlAsync(baseUrl, stoppingToken).ConfigureAwait(false);
+                if (existing is not null && !string.IsNullOrEmpty(existing.BotKey))
+                {
+                    // Old registrations had no MessagePublicKey → empty GET /bots catalog.
+                    // Remove + re-register so the server stores the RSA public key.
+                    _logger.LogInformation(
+                        "Re-registering on {BaseUrl} to publish MessagePublicKey",
+                        baseUrl);
+                    try
+                    {
+                        await _messenger.RemoveAsync(
+                            serverUri,
+                            new BotRemoveRequest
+                            {
+                                NetworkId = existing.NetworkId,
+                                BotKey = existing.BotKey
+                            },
+                            stoppingToken).ConfigureAwait(false);
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        _logger.LogWarning(ex, "Remove before re-register on {BaseUrl} failed; trying register anyway", baseUrl);
+                    }
+                }
+
                 await _messenger.RegisterAsync(serverUri, new BotRegisterRequest
                 {
                     NetworkId = bot.NetworkId.Trim(),
                     BotName = bot.Name.Trim(),
                     BotReadableName = bot.ReadableName.Trim(),
                     BotDescription = bot.Description.Trim(),
-                    FingerprintSha256 = fingerprintSha256
+                    FingerprintSha256 = fingerprintSha256,
+                    MessagePublicKey = messagePublicKey
                 }, stoppingToken).ConfigureAwait(false);
 
-                _logger.LogInformation("Registered on {BaseUrl}; bot key saved in the local database", baseUrl);
+                _logger.LogInformation(
+                    "Registered on {BaseUrl} with MessagePublicKey (len={KeyLen})",
+                    baseUrl,
+                    messagePublicKey.Length);
                 return true;
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -135,7 +180,19 @@ internal sealed class EchoBotService : BackgroundService
         var replies = new List<BotClientMessageDto>(income.Messages.Count);
         foreach (var message in income.Messages)
         {
-            var text = MessageText.Decode(message.EncryptedMessageBase64);
+            string text;
+            try
+            {
+                text = BotMessageCrypto.DecryptEnvelopeToText(
+                    message.EncryptedMessageBase64 ?? "",
+                    _privateKeyJson);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Decrypt failed; falling back to plain base64 decode");
+                text = MessageText.Decode(message.EncryptedMessageBase64);
+            }
+
             var reply = MessageText.ReplyTo(text);
             _logger.LogInformation(
                 "Received message from {ClientNetworkId}: {Text}",
@@ -152,22 +209,50 @@ internal sealed class EchoBotService : BackgroundService
                 ReplyText = reply
             }, stoppingToken).ConfigureAwait(false);
 
+            var clientPub = message.ClientMessagePublicKey?.Trim() ?? "";
+            if (clientPub.Length == 0)
+            {
+                _logger.LogError(
+                    "No ClientMessagePublicKey for {ClientNetworkId} — client must PublishChatRequest to the bot first; skipping reply",
+                    message.NetworkId);
+                continue;
+            }
+
+            string encryptedReply;
+            try
+            {
+                encryptedReply = BotMessageCrypto.EncryptTextToEnvelopeBase64(reply, clientPub);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to encrypt reply for {ClientNetworkId}", message.NetworkId);
+                continue;
+            }
+
             replies.Add(new BotClientMessageDto
             {
                 NetworkId = message.NetworkId,
-                EncryptedMessageBase64 = MessageText.Encode(reply),
+                EncryptedMessageBase64 = encryptedReply,
                 CorrelationId = message.CorrelationId
             });
+
+            _logger.LogInformation(
+                "Prepared encrypted reply to {ClientNetworkId}: {Reply}",
+                message.NetworkId,
+                reply);
         }
+
+        if (replies.Count == 0)
+            return;
 
         await _messenger.SendMessagesViaPoolAsync(NewRequestId(), replies, stoppingToken).ConfigureAwait(false);
 
         foreach (var reply in replies)
         {
             _logger.LogInformation(
-                "Sent reply to {ClientNetworkId}: {Reply}",
+                "Sent reply to {ClientNetworkId} (cipherLen={Len})",
                 reply.NetworkId,
-                MessageText.Decode(reply.EncryptedMessageBase64));
+                reply.EncryptedMessageBase64?.Length ?? 0);
         }
     }
 

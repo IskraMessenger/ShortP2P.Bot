@@ -126,6 +126,24 @@ public sealed class MessengerServerApiClient : IMessengerServerApiClient
         return await ReadRequiredAsync<BotWaitForIncomeMessagesResponse>(response, cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task RemoveAsync(
+        Uri serverBaseUrl,
+        BotRemoveRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (request is null) throw new ArgumentNullException(nameof(request));
+
+        using var response = await SendAsync(
+            serverBaseUrl,
+            HttpMethod.Post,
+            ServerApiRoutes.BotRemove,
+            JsonContent.Create(request, options: JsonOptions),
+            HttpTimeout,
+            cancellationToken).ConfigureAwait(false);
+
+        await EnsureSuccessAsync(response, cancellationToken).ConfigureAwait(false);
+    }
+
     private async Task<HttpResponseMessage> SendAsync(
         Uri serverBaseUrl,
         HttpMethod method,

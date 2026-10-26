@@ -21,6 +21,7 @@ builder.Services.AddSingleton<SampleBotDatabase>();
 builder.Services.AddSingleton<IMessengerServerRepository, SqliteMessengerServerRepository>();
 builder.Services.AddSingleton<IRequestLog, SqliteRequestLog>();
 builder.Services.AddSingleton<IBotCertificateStore, SqliteBotCertificateStore>();
+builder.Services.AddSingleton<SqliteMessageKeyStore>();
 builder.Services.AddShortP2PBot();
 
 if (builder.Configuration.GetValue("MessengerServer:AllowInvalidCertificate", false))
