@@ -19,7 +19,8 @@ public sealed class BotMessengerTests
                 NetworkId = "botNet",
                 BotName = "echo",
                 BotReadableName = "Echo",
-                BotDescription = "d"
+                BotDescription = "d",
+                MessagePublicKey = "{\"M\":\"AQAB\",\"E\":\"AQAB\"}"
             });
 
             var pool = await servers.GetAllAsync();

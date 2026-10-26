@@ -26,4 +26,9 @@ public interface IMessengerServerApiClient
         Uri serverBaseUrl,
         BotWaitForIncomeMessagesRequest request,
         CancellationToken cancellationToken = default);
+
+    Task RemoveAsync(
+        Uri serverBaseUrl,
+        BotRemoveRequest request,
+        CancellationToken cancellationToken = default);
 }
