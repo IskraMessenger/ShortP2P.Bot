@@ -86,6 +86,11 @@ public sealed class UnavailableServersHealthCheckJob : BackgroundService
         foreach (var server in unavailableServers)
         {
             cancellationToken.ThrowIfCancellationRequested();
+
+            // Certificate-blocked servers stay out of the pool until the host re-registers.
+            if (server.IsBlocked)
+                continue;
+
             var checkedAt = DateTime.UtcNow;
 
             try

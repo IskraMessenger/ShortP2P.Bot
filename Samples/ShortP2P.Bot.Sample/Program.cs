@@ -8,6 +8,7 @@ using ShortP2P.Bot.Http;
 using ShortP2P.Bot.Sample.Configuration;
 using ShortP2P.Bot.Sample.Echo;
 using ShortP2P.Bot.Sample.Storage;
+using ShortP2P.Bot.Security;
 
 LogManager.Configuration = new XmlLoggingConfiguration(Path.Combine(AppContext.BaseDirectory, "nlog.config"));
 
@@ -23,6 +24,8 @@ builder.Services.AddSingleton<IRequestLog, SqliteRequestLog>();
 builder.Services.AddSingleton<IBotCertificateStore, SqliteBotCertificateStore>();
 builder.Services.AddSingleton<SqliteMessageKeyStore>();
 builder.Services.AddShortP2PBot();
+// Prefer the sample SQLite-backed cert over the library auto-generated PFX.
+builder.Services.AddSingleton<IBotCertificateProvider, StoreBackedBotCertificateProvider>();
 
 if (builder.Configuration.GetValue("MessengerServer:AllowInvalidCertificate", false))
 {

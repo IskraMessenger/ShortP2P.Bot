@@ -14,8 +14,23 @@ public sealed class MessengerServerEntity
     /// <summary>Bot network id registered on this server.</summary>
     public string NetworkId { get; set; } = string.Empty;
 
+    /// <summary>Bot logical name registered on this server (needed for login).</summary>
+    public string BotName { get; set; } = string.Empty;
+
     /// <summary>Secret bot key issued by this server. Do not log.</summary>
     public string BotKey { get; set; } = string.Empty;
+
+    /// <summary>
+    /// SHA-256 fingerprint of the messenger server TLS certificate, pinned at registration.
+    /// Normalized lowercase hex without separators.
+    /// </summary>
+    public string ServerFingerprintSha256 { get; set; } = string.Empty;
+
+    /// <summary>
+    /// True when the server certificate fingerprint no longer matches the pin from registration.
+    /// Blocked servers are excluded from messaging and health-check recovery until re-registered.
+    /// </summary>
+    public bool IsBlocked { get; set; }
 
     /// <summary>False when the server was marked unreachable (transport / health failure).</summary>
     public bool IsAvailable { get; set; } = true;
@@ -27,6 +42,6 @@ public sealed class MessengerServerEntity
 
     public DateTime? LastHealthCheckAtUtc { get; set; }
 
-    /// <summary>Optional last error message from health check or failed transport.</summary>
+    /// <summary>Optional last error message from health check, failed transport, or cert block.</summary>
     public string? LastError { get; set; }
 }

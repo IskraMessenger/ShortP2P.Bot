@@ -1,13 +1,15 @@
 using ShortP2P.Bot.Contracts.Dtos;
+using ShortP2P.Bot.Http;
 using ShortP2P.Bot.Mocks.Fakes;
 using ShortP2P.Bot.Mocks.Mocks;
+using ShortP2P.Bot.Security;
 
 namespace ShortP2P.Bot.Tests;
 
 public sealed class BotMessengerTests
 {
     [Fact]
-    public async Task Register_AddsServerToPool()
+    public async Task Register_AddsServerToPool_WithPinnedFingerprint()
     {
         using var mock = MessengerServerMock.Start().SetupRegister();
         var (services, servers) = BotTestHost.Create();
@@ -27,7 +29,18 @@ public sealed class BotMessengerTests
             var entity = Assert.Single(pool);
             Assert.Equal(mock.BaseUri.ToString().TrimEnd('/'), entity.BaseUrl);
             Assert.Equal(response.BotKey, entity.BotKey);
+            Assert.Equal("echo", entity.BotName);
+            Assert.Equal(MessengerServerMock.DefaultServerFingerprint, entity.ServerFingerprintSha256);
+            Assert.Equal(MessengerServerMock.DefaultServerFingerprint, response.ServerFingerprintSha256);
+            Assert.False(entity.IsBlocked);
             Assert.True(entity.IsAvailable);
+
+            var registerLog = mock.Server.LogEntries.Single(e =>
+                e.RequestMessage.Path.Contains("register", StringComparison.Ordinal));
+            Assert.Contains(
+                services.Certificate().FingerprintSha256,
+                registerLog.RequestMessage.Body,
+                StringComparison.OrdinalIgnoreCase);
         }
     }
 
@@ -45,7 +58,9 @@ public sealed class BotMessengerTests
                 {
                     BaseUrl = $"http://server-{i}.local",
                     NetworkId = $"net-{i}",
+                    BotName = $"bot-{i}",
                     BotKey = MessengerServerMock.DefaultBotKey,
+                    ServerFingerprintSha256 = MessengerServerMock.DefaultServerFingerprint,
                     IsAvailable = true,
                     RegisteredAtUtc = DateTime.UtcNow
                 });
@@ -62,6 +77,96 @@ public sealed class BotMessengerTests
 
             Assert.Contains(BotPoolLimits.MaxServers.ToString(), ex.Message);
             Assert.Equal(BotPoolLimits.MaxServers, (await servers.GetAllAsync()).Count);
+        }
+    }
+
+    [Fact]
+    public async Task Login_Succeeds_WhenServerFingerprintMatchesPin()
+    {
+        using var mock = MessengerServerMock.Start()
+            .SetupRegister()
+            .SetupLogin();
+        var (services, servers) = BotTestHost.Create();
+
+        await using (services)
+        {
+            await services.Messenger().RegisterAsync(mock.BaseUri, new BotRegisterRequest
+            {
+                NetworkId = "botNet",
+                BotName = "echo",
+                BotReadableName = "Echo",
+                BotDescription = "d"
+            });
+
+            var login = await services.Messenger().LoginAsync(mock.BaseUri);
+
+            Assert.Equal(MessengerServerMock.DefaultToken, login.Token);
+            var entity = Assert.Single(await servers.GetAllAsync());
+            Assert.False(entity.IsBlocked);
+        }
+    }
+
+    [Fact]
+    public async Task Login_BlocksServer_WhenServerFingerprintMismatches()
+    {
+        const string otherFingerprint = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        using var mock = MessengerServerMock.Start()
+            .SetupRegister(serverFingerprintSha256: MessengerServerMock.DefaultServerFingerprint)
+            .SetupLogin(serverFingerprintSha256: otherFingerprint);
+        var (services, servers) = BotTestHost.Create();
+
+        await using (services)
+        {
+            await services.Messenger().RegisterAsync(mock.BaseUri, new BotRegisterRequest
+            {
+                NetworkId = "botNet",
+                BotName = "echo",
+                BotReadableName = "Echo",
+                BotDescription = "d"
+            });
+
+            var ex = await Assert.ThrowsAsync<MessengerServerCertificateException>(
+                () => services.Messenger().LoginAsync(mock.BaseUri));
+
+            Assert.Equal(MessengerServerMock.DefaultServerFingerprint, ex.ExpectedFingerprint);
+            Assert.Equal(otherFingerprint, ex.ActualFingerprint);
+
+            var entity = Assert.Single(await servers.GetAllAsync());
+            Assert.True(entity.IsBlocked);
+            Assert.False(entity.IsAvailable);
+            Assert.Empty(await servers.GetAvailableOrderedAsync());
+        }
+    }
+
+    [Fact]
+    public async Task SendMessages_Throws_WhenServerIsBlocked()
+    {
+        using var mock = MessengerServerMock.Start().SetupSendMessages();
+        var (services, servers) = BotTestHost.Create();
+
+        await using (services)
+        {
+            await servers.UpsertAsync(new Dal.Entities.MessengerServerEntity
+            {
+                BaseUrl = mock.BaseUri.ToString().TrimEnd('/'),
+                NetworkId = "botNet",
+                BotName = "echo",
+                BotKey = MessengerServerMock.DefaultBotKey,
+                ServerFingerprintSha256 = MessengerServerMock.DefaultServerFingerprint,
+                IsBlocked = true,
+                IsAvailable = false,
+                RegisteredAtUtc = DateTime.UtcNow,
+                LastError = "blocked"
+            });
+
+            await Assert.ThrowsAsync<MessengerServerCertificateException>(() =>
+                services.Messenger().SendMessagesAsync(mock.BaseUri, new BotSendMessagesRequest
+                {
+                    RequestId = "req",
+                    BotNetworkId = "botNet",
+                    BotKey = MessengerServerMock.DefaultBotKey,
+                    Messages = Array.Empty<BotClientMessageDto>()
+                }));
         }
     }
 
@@ -140,7 +245,9 @@ public sealed class BotMessengerTests
         {
             BaseUrl = baseUri.ToString().TrimEnd('/'),
             NetworkId = "botNet",
+            BotName = "echo",
             BotKey = MessengerServerMock.DefaultBotKey,
+            ServerFingerprintSha256 = MessengerServerMock.DefaultServerFingerprint,
             IsAvailable = true,
             RegisteredAtUtc = DateTime.UtcNow,
             LastSuccessfulAtUtc = lastSuccessful

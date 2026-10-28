@@ -46,15 +46,18 @@ internal sealed class SampleBotDatabase
             command.CommandText =
                 """
                 CREATE TABLE IF NOT EXISTS messenger_servers (
-                    id                       INTEGER PRIMARY KEY AUTOINCREMENT,
-                    base_url                 TEXT NOT NULL UNIQUE,
-                    network_id               TEXT NOT NULL,
-                    bot_key                  TEXT NOT NULL,
-                    is_available             INTEGER NOT NULL DEFAULT 1,
-                    last_successful_at_utc   TEXT NULL,
-                    registered_at_utc        TEXT NOT NULL,
-                    last_health_check_at_utc TEXT NULL,
-                    last_error               TEXT NULL
+                    id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    base_url                    TEXT NOT NULL UNIQUE,
+                    network_id                  TEXT NOT NULL,
+                    bot_name                    TEXT NOT NULL DEFAULT '',
+                    bot_key                     TEXT NOT NULL,
+                    server_fingerprint_sha256   TEXT NOT NULL DEFAULT '',
+                    is_blocked                  INTEGER NOT NULL DEFAULT 0,
+                    is_available                INTEGER NOT NULL DEFAULT 1,
+                    last_successful_at_utc      TEXT NULL,
+                    registered_at_utc           TEXT NOT NULL,
+                    last_health_check_at_utc    TEXT NULL,
+                    last_error                  TEXT NULL
                 );
 
                 CREATE TABLE IF NOT EXISTS bot_certificate (
@@ -75,6 +78,28 @@ internal sealed class SampleBotDatabase
                 );
                 """;
             command.ExecuteNonQuery();
+
+            TryAddColumn(connection, "messenger_servers", "bot_name", "TEXT NOT NULL DEFAULT ''");
+            TryAddColumn(connection, "messenger_servers", "server_fingerprint_sha256", "TEXT NOT NULL DEFAULT ''");
+            TryAddColumn(connection, "messenger_servers", "is_blocked", "INTEGER NOT NULL DEFAULT 0");
+        }
+    }
+
+    private static void TryAddColumn(
+        SqliteConnection connection,
+        string table,
+        string column,
+        string definition)
+    {
+        try
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {definition};";
+            command.ExecuteNonQuery();
+        }
+        catch (SqliteException)
+        {
+            // Column already exists on upgraded databases.
         }
     }
 

@@ -11,6 +11,7 @@ using ShortP2P.Bot.Sample.Meteo.Commands;
 using ShortP2P.Bot.Sample.Meteo.Storage;
 using ShortP2P.Bot.Sample.Meteo.Weather;
 using ShortP2P.Bot.Sample.Storage;
+using ShortP2P.Bot.Security;
 
 LogManager.Configuration = new XmlLoggingConfiguration(Path.Combine(AppContext.BaseDirectory, "nlog.config"));
 
@@ -36,6 +37,8 @@ builder.Services.AddHttpClient<OpenMeteoClient>(client =>
 builder.Services.AddSingleton<WeatherService>();
 builder.Services.AddSingleton<MeteoCommandHandler>();
 builder.Services.AddShortP2PBot();
+// Prefer the sample SQLite-backed cert over the library auto-generated PFX.
+builder.Services.AddSingleton<IBotCertificateProvider, StoreBackedBotCertificateProvider>();
 
 if (builder.Configuration.GetValue("MessengerServer:AllowInvalidCertificate", false))
 {

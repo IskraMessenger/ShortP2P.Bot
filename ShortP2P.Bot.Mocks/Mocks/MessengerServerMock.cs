@@ -18,6 +18,7 @@ public sealed class MessengerServerMock : IDisposable
 {
     public const string DefaultBotKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
     public const string DefaultToken = "mock-bot-token";
+    public const string DefaultServerFingerprint = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -65,9 +66,24 @@ public sealed class MessengerServerMock : IDisposable
         return this;
     }
 
-    public MessengerServerMock SetupRegister(string? botKey = null)
+    public MessengerServerMock SetupServerCertificate(string? fingerprintSha256 = null)
+    {
+        var fingerprint = fingerprintSha256 ?? DefaultServerFingerprint;
+        _server
+            .Given(Request.Create().WithPath(ServerApiRoutes.ServerCertificate).UsingGet())
+            .RespondWith(Json(200, new ServerCertificateResponse
+            {
+                FingerprintSha256 = fingerprint,
+                Subject = "CN=mock-messenger-server",
+                NotAfterUtc = DateTime.UtcNow.AddYears(1)
+            }));
+        return this;
+    }
+
+    public MessengerServerMock SetupRegister(string? botKey = null, string? serverFingerprintSha256 = null)
     {
         var key = botKey ?? DefaultBotKey;
+        var serverFingerprint = serverFingerprintSha256 ?? DefaultServerFingerprint;
 
         _server
             .Given(Request.Create().WithPath(ServerApiRoutes.BotRegister).UsingPost())
@@ -80,24 +96,30 @@ public sealed class MessengerServerMock : IDisposable
                     BotName = payload.BotName,
                     BotReadableName = payload.BotReadableName,
                     BotDescription = payload.BotDescription,
-                    BotKey = key
+                    BotKey = key,
+                    ServerFingerprintSha256 = serverFingerprint
                 });
             }));
 
         return this;
     }
 
-    public MessengerServerMock SetupLogin(string? token = null, DateTime? expiresAtUtc = null)
+    public MessengerServerMock SetupLogin(
+        string? token = null,
+        DateTime? expiresAtUtc = null,
+        string? serverFingerprintSha256 = null)
     {
         var issuedToken = token ?? DefaultToken;
         var expires = expiresAtUtc ?? DateTime.UtcNow.AddHours(1);
+        var serverFingerprint = serverFingerprintSha256 ?? DefaultServerFingerprint;
 
         _server
             .Given(Request.Create().WithPath(ServerApiRoutes.BotLogin).UsingPost())
             .RespondWith(Json(200, new BotLoginResponse
             {
                 Token = issuedToken,
-                ExpiresAtUtc = expires
+                ExpiresAtUtc = expires,
+                ServerFingerprintSha256 = serverFingerprint
             }));
 
         return this;

@@ -7,6 +7,8 @@ public static class ServerApiRoutes
 
     public const string HealthPing = Prefix + "/health/ping";
 
+    public const string ServerCertificate = Prefix + "/server/certificate";
+
     public const string BotRegister = Prefix + "/bot_server_interaction/register";
     public const string BotLogin = Prefix + "/bot_server_interaction/login";
     public const string BotRemove = Prefix + "/bot_server_interaction/remove";

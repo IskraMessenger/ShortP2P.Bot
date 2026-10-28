@@ -39,6 +39,22 @@ public sealed class MessengerServerApiClient : IMessengerServerApiClient
         await EnsureSuccessAsync(response, cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<ServerCertificateResponse> GetServerCertificateAsync(
+        Uri serverBaseUrl,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await SendAsync(
+            serverBaseUrl,
+            HttpMethod.Get,
+            ServerApiRoutes.ServerCertificate,
+            content: null,
+            HttpTimeout,
+            cancellationToken).ConfigureAwait(false);
+
+        await EnsureSuccessAsync(response, cancellationToken).ConfigureAwait(false);
+        return await ReadRequiredAsync<ServerCertificateResponse>(response, cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<BotRegisterResponse> RegisterAsync(
         Uri serverBaseUrl,
         BotRegisterRequest request,
@@ -75,6 +91,25 @@ public sealed class MessengerServerApiClient : IMessengerServerApiClient
 
         await EnsureSuccessAsync(response, cancellationToken).ConfigureAwait(false);
         return await ReadRequiredAsync<BotLoginResponse>(response, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<BotRemoveResponse> RemoveAsync(
+        Uri serverBaseUrl,
+        BotRemoveRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (request is null) throw new ArgumentNullException(nameof(request));
+
+        using var response = await SendAsync(
+            serverBaseUrl,
+            HttpMethod.Post,
+            ServerApiRoutes.BotRemove,
+            JsonContent.Create(request, options: JsonOptions),
+            HttpTimeout,
+            cancellationToken).ConfigureAwait(false);
+
+        await EnsureSuccessAsync(response, cancellationToken).ConfigureAwait(false);
+        return await ReadRequiredAsync<BotRemoveResponse>(response, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<BotSendMessagesResponse> SendMessagesAsync(
@@ -124,24 +159,6 @@ public sealed class MessengerServerApiClient : IMessengerServerApiClient
 
         await EnsureSuccessAsync(response, cancellationToken).ConfigureAwait(false);
         return await ReadRequiredAsync<BotWaitForIncomeMessagesResponse>(response, cancellationToken).ConfigureAwait(false);
-    }
-
-    public async Task RemoveAsync(
-        Uri serverBaseUrl,
-        BotRemoveRequest request,
-        CancellationToken cancellationToken = default)
-    {
-        if (request is null) throw new ArgumentNullException(nameof(request));
-
-        using var response = await SendAsync(
-            serverBaseUrl,
-            HttpMethod.Post,
-            ServerApiRoutes.BotRemove,
-            JsonContent.Create(request, options: JsonOptions),
-            HttpTimeout,
-            cancellationToken).ConfigureAwait(false);
-
-        await EnsureSuccessAsync(response, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<HttpResponseMessage> SendAsync(

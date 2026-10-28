@@ -33,6 +33,7 @@
     <Compile Include="..\ShortP2P.Bot.Sample\Storage\SqliteMessageKeyStore.cs" Link="Shared\SqliteMessageKeyStore.cs" />
     <Compile Include="..\ShortP2P.Bot.Sample\Storage\SqliteMessengerServerRepository.cs" Link="Shared\SqliteMessengerServerRepository.cs" />
     <Compile Include="..\ShortP2P.Bot.Sample\Storage\SqliteValues.cs" Link="Shared\SqliteValues.cs" />
+    <Compile Include="..\ShortP2P.Bot.Sample\Storage\StoreBackedBotCertificateProvider.cs" Link="Shared\StoreBackedBotCertificateProvider.cs" />
   </ItemGroup>
 
   <ItemGroup>

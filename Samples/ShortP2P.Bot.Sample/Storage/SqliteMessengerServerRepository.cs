@@ -30,7 +30,7 @@ internal sealed class SqliteMessengerServerRepository : IMessengerServerReposito
     public Task<IReadOnlyList<MessengerServerEntity>> GetAvailableOrderedAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var available = Query("is_available <> 0", _ => { });
+        var available = Query("is_available <> 0 AND is_blocked = 0", _ => { });
         IReadOnlyList<MessengerServerEntity> ordered = MessengerServerOrdering.OrderForMessaging(available).ToArray();
         return Task.FromResult(ordered);
     }
@@ -38,7 +38,7 @@ internal sealed class SqliteMessengerServerRepository : IMessengerServerReposito
     public Task<IReadOnlyList<MessengerServerEntity>> GetUnavailableAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(Query("is_available = 0 ORDER BY id", _ => { }));
+        return Task.FromResult(Query("is_available = 0 AND is_blocked = 0 ORDER BY id", _ => { }));
     }
 
     public Task<IReadOnlyList<MessengerServerEntity>> GetAllAsync(CancellationToken cancellationToken = default)
@@ -63,7 +63,10 @@ internal sealed class SqliteMessengerServerRepository : IMessengerServerReposito
                     INSERT INTO messenger_servers (
                         base_url,
                         network_id,
+                        bot_name,
                         bot_key,
+                        server_fingerprint_sha256,
+                        is_blocked,
                         is_available,
                         last_successful_at_utc,
                         registered_at_utc,
@@ -72,7 +75,10 @@ internal sealed class SqliteMessengerServerRepository : IMessengerServerReposito
                     VALUES (
                         $baseUrl,
                         $networkId,
+                        $botName,
                         $botKey,
+                        $serverFingerprint,
+                        $isBlocked,
                         $isAvailable,
                         $lastSuccessful,
                         $registered,
@@ -95,7 +101,10 @@ internal sealed class SqliteMessengerServerRepository : IMessengerServerReposito
                 UPDATE messenger_servers
                 SET base_url = $baseUrl,
                     network_id = $networkId,
+                    bot_name = $botName,
                     bot_key = $botKey,
+                    server_fingerprint_sha256 = $serverFingerprint,
+                    is_blocked = $isBlocked,
                     is_available = $isAvailable,
                     last_successful_at_utc = $lastSuccessful,
                     registered_at_utc = $registered,
@@ -119,6 +128,25 @@ internal sealed class SqliteMessengerServerRepository : IMessengerServerReposito
             UPDATE messenger_servers
             SET is_available = 0,
                 last_error = $error
+            WHERE id = $id AND is_blocked = 0;
+            """,
+            command =>
+            {
+                command.Parameters.AddWithValue("$id", id);
+                command.Parameters.AddWithValue("$error", TrimError(error));
+            });
+        return Task.CompletedTask;
+    }
+
+    public Task MarkBlockedAsync(long id, string? error, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ExecuteUpdate(
+            """
+            UPDATE messenger_servers
+            SET is_blocked = 1,
+                is_available = 0,
+                last_error = $error
             WHERE id = $id;
             """,
             command =>
@@ -138,7 +166,7 @@ internal sealed class SqliteMessengerServerRepository : IMessengerServerReposito
             SET is_available = 1,
                 last_error = NULL,
                 last_health_check_at_utc = $checkedAt
-            WHERE id = $id;
+            WHERE id = $id AND is_blocked = 0;
             """,
             command =>
             {
@@ -157,7 +185,7 @@ internal sealed class SqliteMessengerServerRepository : IMessengerServerReposito
             SET is_available = 1,
                 last_error = NULL,
                 last_successful_at_utc = $successfulAt
-            WHERE id = $id;
+            WHERE id = $id AND is_blocked = 0;
             """,
             command =>
             {
@@ -181,7 +209,7 @@ internal sealed class SqliteMessengerServerRepository : IMessengerServerReposito
             SET is_available = $isAvailable,
                 last_health_check_at_utc = $checkedAt,
                 last_error = $error
-            WHERE id = $id;
+            WHERE id = $id AND is_blocked = 0;
             """,
             command =>
             {
@@ -244,7 +272,10 @@ internal sealed class SqliteMessengerServerRepository : IMessengerServerReposito
     {
         command.Parameters.AddWithValue("$baseUrl", server.BaseUrl);
         command.Parameters.AddWithValue("$networkId", server.NetworkId);
+        command.Parameters.AddWithValue("$botName", server.BotName);
         command.Parameters.AddWithValue("$botKey", server.BotKey);
+        command.Parameters.AddWithValue("$serverFingerprint", server.ServerFingerprintSha256);
+        command.Parameters.AddWithValue("$isBlocked", server.IsBlocked ? 1 : 0);
         command.Parameters.AddWithValue("$isAvailable", server.IsAvailable ? 1 : 0);
         command.Parameters.AddWithValue("$lastSuccessful", NullableUtc(server.LastSuccessfulAtUtc));
         command.Parameters.AddWithValue("$registered", SqliteValues.FormatUtc(server.RegisteredAtUtc));
@@ -268,7 +299,10 @@ internal sealed class SqliteMessengerServerRepository : IMessengerServerReposito
         Id = reader.GetInt64(reader.GetOrdinal("id")),
         BaseUrl = reader.GetString(reader.GetOrdinal("base_url")),
         NetworkId = reader.GetString(reader.GetOrdinal("network_id")),
+        BotName = SqliteValues.ReadString(reader, "bot_name") ?? string.Empty,
         BotKey = reader.GetString(reader.GetOrdinal("bot_key")),
+        ServerFingerprintSha256 = SqliteValues.ReadString(reader, "server_fingerprint_sha256") ?? string.Empty,
+        IsBlocked = reader.GetInt64(reader.GetOrdinal("is_blocked")) != 0,
         IsAvailable = reader.GetInt64(reader.GetOrdinal("is_available")) != 0,
         LastSuccessfulAtUtc = SqliteValues.ReadDateTime(reader, "last_successful_at_utc"),
         RegisteredAtUtc = SqliteValues.ReadDateTime(reader, "registered_at_utc") ?? DateTime.UnixEpoch,
