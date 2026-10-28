@@ -1,47 +1,47 @@
 ---
-description: Workflow для фич по тикетам TRL-XX — ветка feature/TRL-XX от dev/x.x, реализация, commit/push, PR в dev/x.x, ссылка на review
+description: Feature workflow for TRL-XX tickets — branch feature/TRL-XX from dev/x.x, implement, commit/push, PR into dev/x.x, return the review URL
 alwaysApply: true
 ---
 
-# Workflow фич по тикетам TRL
+# Feature workflow for TRL tickets
 
-Когда пользователь просит реализовать фичу и указывает тикет вида **TRL-XX** (например `TRL-15`), следуй этому процессу.
+When the user asks you to implement a feature and names a ticket **TRL-XX** (for example `TRL-15`), please follow this process.
 
-## 1. Базовая ветка и feature-ветка
+## 1. Base branch and feature branch
 
-1. Определи актуальную базовую ветку версии: `dev/x.x` (например `dev/1.2`, `dev/0.2`).
-   - Обычно это текущая ветка `dev/*` или та, которую явно указал пользователь.
-2. От базовой ветки `dev/x.x` создай ветку:
-   - имя: `feature/TRL-XX` (тот же номер тикета, что указал пользователь);
-   - пример: от `dev/0.2` → `feature/TRL-42`.
-3. Переключись на `feature/TRL-XX` и веди всю реализацию только на ней.
+1. Please identify the current version base branch: `dev/x.x` (for example `dev/1.2`, `dev/0.2`).
+   - This is usually the current `dev/*` branch, or the branch the user named explicitly.
+2. From the base branch `dev/x.x`, please create a branch:
+   - name: `feature/TRL-XX` (the same ticket number the user gave);
+   - example: from `dev/0.2` → `feature/TRL-42`.
+3. Please switch to `feature/TRL-XX` and keep the whole implementation on that branch.
 
-## 2. Реализация
+## 2. Implementation
 
-- Реализуй фичу на ветке `feature/TRL-XX`.
-- Не смешивай изменения с другими тикетами в одной ветке.
+- Please implement the feature on `feature/TRL-XX`.
+- Please do not mix changes from other tickets into the same branch.
 
-## 3. Commit, push и Pull Request
+## 3. Commit, push, and pull request
 
-После реализации (когда пользователь просит закоммитить / запушить / сделать PR, либо как завершение этого feature-workflow):
+After implementation (when the user asks you to commit, push, or open a PR, or as the close of this feature workflow):
 
-1. **Commit** — только когда это часть workflow после реализации или по явной просьбе пользователя. Не коммить «на всякий случай».
-2. **Push** — при необходимости с `-u` для новой ветки (`git push -u origin HEAD`).
-3. **Pull Request**:
-   - создавай через `gh pr create`;
-   - **base** = `dev/x.x` (та же версионная ветка, от которой создавали feature);
+1. **Commit** — only when it is part of this workflow after implementation, or when the user explicitly asks. Please do not commit "just in case". Please write the message as defined in Code Conduction.
+2. **Push** — with `-u` when the branch is new (`git push -u origin HEAD`).
+3. **Pull request**:
+   - please create it with `gh pr create`;
+   - **base** = `dev/x.x` (the same version branch the feature was created from);
    - **head** = `feature/TRL-XX`;
-   - не делай PR в `main`/`master`, если пользователь явно не попросил иное.
-4. **Ответ пользователю** — обязательно пришли ссылку на PR (review URL), чтобы можно было сразу открыть review.
+   - please do not open the PR against `main`/`master` unless the user explicitly asks for that.
+4. **Reply to the user** — please send the PR review URL so the review can be opened immediately.
 
-## 4. Согласование с общими git/PR-правилами
+## 4. Alignment with general git and PR rules
 
-- Не коммить без запроса / вне этого feature-workflow.
-- Для GitHub используй `gh`.
-- Не делай force-push в защищённые ветки и не меняй git config.
-- В ответе после создания PR всегда возвращай URL pull request.
+- Please do not commit without a request, or outside this feature workflow.
+- Please use `gh` for GitHub.
+- Please do not force-push protected branches, and please do not change git config.
+- After you create a PR, please always return the pull request URL in the reply.
 
-## Краткий чеклист
+## Short checklist
 
 ```
 dev/x.x  →  feature/TRL-XX  →  implement  →  commit+push  →  PR into dev/x.x  →  send PR URL

@@ -20,4 +20,10 @@ public sealed class BotRegisterRequest
     /// Stored by the server and checked on later <see cref="BotLoginRequest"/>.
     /// </summary>
     public string FingerprintSha256 { get; set; } = string.Empty;
+
+    /// <summary>
+    /// RSA public key JSON (<c>{"M":"...","E":"..."}</c>) for client → bot payload encryption.
+    /// Required by current messenger servers; exposed via GET /bots.
+    /// </summary>
+    public string MessagePublicKey { get; set; } = string.Empty;
 }

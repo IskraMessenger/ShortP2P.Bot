@@ -25,6 +25,12 @@ public interface IBotMessenger
         Uri serverBaseUrl,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Removes the bot account on <paramref name="serverBaseUrl"/> (needs local bot key).</summary>
+    Task RemoveAsync(
+        Uri serverBaseUrl,
+        BotRemoveRequest request,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Send messages to a specific server (credentials must be provided in the request).</summary>
     Task<BotSendMessagesResponse> SendMessagesAsync(
         Uri serverBaseUrl,

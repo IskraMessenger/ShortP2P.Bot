@@ -170,6 +170,28 @@ public sealed class BotMessenger : IBotMessenger
         return response;
     }
 
+    public async Task RemoveAsync(
+        Uri serverBaseUrl,
+        BotRemoveRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (request is null) throw new ArgumentNullException(nameof(request));
+
+        var baseUrl = NormalizeBaseUrl(serverBaseUrl);
+        await _apiClient.RemoveAsync(serverBaseUrl, request, cancellationToken).ConfigureAwait(false);
+
+        var existing = await _servers.GetByBaseUrlAsync(baseUrl, cancellationToken).ConfigureAwait(false);
+        if (existing is not null)
+        {
+            existing.BotKey = "";
+            existing.IsAvailable = false;
+            existing.LastError = "removed";
+            await _servers.UpsertAsync(existing, cancellationToken).ConfigureAwait(false);
+        }
+
+        _logger.LogInformation("Bot removed on {BaseUrl}", baseUrl);
+    }
+
     public async Task<BotSendMessagesResponse> SendMessagesAsync(
         Uri serverBaseUrl,
         BotSendMessagesRequest request,

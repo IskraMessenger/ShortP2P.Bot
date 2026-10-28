@@ -1,0 +1,28 @@
+---
+description: Code Conduction — English documentation and commit messages from the YouTrack issue id
+alwaysApply: true
+---
+
+# Code Conduction
+
+## Language
+
+Please write all documentation in English.
+
+## Commit messages
+
+Please build every commit message only from the ticket id and a list of completed work. Please write the whole message in English.
+
+Please take the ticket id from the YouTrack link in the request: the path segment after `/issue/`.
+
+`https://botticelli.youtrack.cloud/issue/SHB-1/Sample-bot` → `SHB-1`.
+
+```
+SHB-1:
+- Add sample echo bot
+- Store the bot certificate in SQLite
+```
+
+- Please keep the first line as `TICKET-ID:` and nothing else.
+- Please follow it with a bullet list: one completed change per line.
+- Please do not add a separate subject, text outside the list, or Russian text.

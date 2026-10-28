@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>ShortP2P.Bot.Sample.Meteo</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.10" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
+    <PackageReference Include="NLog" Version="5.3.4" />
+    <PackageReference Include="NLog.Extensions.Logging" Version="5.3.11" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\ShortP2P.Bot\ShortP2P.Bot.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\ShortP2P.Bot.Sample\Configuration\BotOptions.cs" Link="Shared\BotOptions.cs" />
+    <Compile Include="..\ShortP2P.Bot.Sample\Configuration\MessengerServerOptions.cs" Link="Shared\MessengerServerOptions.cs" />
+    <Compile Include="..\ShortP2P.Bot.Sample\Configuration\SampleBotOptions.cs" Link="Shared\SampleBotOptions.cs" />
+    <Compile Include="..\ShortP2P.Bot.Sample\Configuration\StorageOptions.cs" Link="Shared\StorageOptions.cs" />
+    <Compile Include="..\ShortP2P.Bot.Sample\Echo\BotMessageCrypto.cs" Link="Shared\BotMessageCrypto.cs" />
+    <Compile Include="..\ShortP2P.Bot.Sample\Echo\MessageText.cs" Link="Shared\MessageText.cs" />
+    <Compile Include="..\ShortP2P.Bot.Sample\Storage\BotCertificateFactory.cs" Link="Shared\BotCertificateFactory.cs" />
+    <Compile Include="..\ShortP2P.Bot.Sample\Storage\BotCertificateRecord.cs" Link="Shared\BotCertificateRecord.cs" />
+    <Compile Include="..\ShortP2P.Bot.Sample\Storage\IBotCertificateStore.cs" Link="Shared\IBotCertificateStore.cs" />
+    <Compile Include="..\ShortP2P.Bot.Sample\Storage\SampleBotDatabase.cs" Link="Shared\SampleBotDatabase.cs" />
+    <Compile Include="..\ShortP2P.Bot.Sample\Storage\SqliteBotCertificateStore.cs" Link="Shared\SqliteBotCertificateStore.cs" />
+    <Compile Include="..\ShortP2P.Bot.Sample\Storage\SqliteMessageKeyStore.cs" Link="Shared\SqliteMessageKeyStore.cs" />
+    <Compile Include="..\ShortP2P.Bot.Sample\Storage\SqliteMessengerServerRepository.cs" Link="Shared\SqliteMessengerServerRepository.cs" />
+    <Compile Include="..\ShortP2P.Bot.Sample\Storage\SqliteValues.cs" Link="Shared\SqliteValues.cs" />
+    <Compile Include="..\ShortP2P.Bot.Sample\Storage\StoreBackedBotCertificateProvider.cs" Link="Shared\StoreBackedBotCertificateProvider.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="ShortP2P.Bot.Sample.Meteo.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="nlog.config">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

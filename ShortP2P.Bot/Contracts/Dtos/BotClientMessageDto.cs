@@ -14,4 +14,9 @@ public sealed class BotClientMessageDto
     /// relayed unchanged by the server.
     /// </summary>
     public string? CorrelationId { get; set; }
+
+    /// <summary>
+    /// On income: client RSA public JSON for encrypting the bot reply (from server crypto_keys / ChatRequest).
+    /// </summary>
+    public string? ClientMessagePublicKey { get; set; }
 }
