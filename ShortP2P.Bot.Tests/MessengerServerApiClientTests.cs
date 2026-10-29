@@ -135,4 +135,76 @@ public sealed class MessengerServerApiClientTests
         Assert.Equal("client1", message.NetworkId);
         Assert.Equal("corr-in", message.CorrelationId);
     }
+
+    [Fact]
+    public async Task SubmitReceipt_Succeeds()
+    {
+        using var mock = MessengerServerMock.Start().SetupReceipts();
+        await using var host = BotTestHost.Create().Services;
+
+        await host.Api().SubmitReceiptAsync(mock.BaseUri, new BotServerReceiptRequest
+        {
+            RequestId = "req-receipt",
+            BotNetworkId = "botNet",
+            BotKey = MessengerServerMock.DefaultBotKey,
+            MessageId = "m1"
+        });
+    }
+
+    [Fact]
+    public async Task PutBlobChunk_And_GetManifest_And_GetChunk_RoundTrip()
+    {
+        using var mock = MessengerServerMock.Start()
+            .SetupPutBlobChunk()
+            .SetupGetBlobChunkManifest()
+            .SetupGetBlobChunk(ciphertext: new byte[] { 9, 8, 7 });
+        await using var host = BotTestHost.Create().Services;
+
+        await host.Api().PutBlobChunkAsync(
+            mock.BaseUri,
+            MessengerServerMock.DefaultToken,
+            "m1",
+            chunkIndex: 0,
+            targetNetworkId: "client1",
+            totalChunks: 1,
+            totalBytes: 3,
+            ciphertext: new byte[] { 9, 8, 7 });
+
+        var manifest = await host.Api().GetBlobChunkManifestAsync(
+            mock.BaseUri,
+            MessengerServerMock.DefaultToken,
+            "m1");
+
+        Assert.Equal("m1", manifest.BlobId);
+        Assert.Equal(new[] { 0 }, manifest.Indexes);
+
+        var chunk = await host.Api().GetBlobChunkAsync(
+            mock.BaseUri,
+            MessengerServerMock.DefaultToken,
+            "m1",
+            chunkIndex: 0);
+
+        Assert.Equal(new byte[] { 9, 8, 7 }, chunk);
+    }
+
+    [Fact]
+    public async Task PutBlobChunk_Throws_When_InsufficientStorage()
+    {
+        using var mock = MessengerServerMock.Start().SetupPutBlobChunkInsufficientStorage();
+        await using var host = BotTestHost.Create().Services;
+
+        var ex = await Assert.ThrowsAsync<MessengerServerApiException>(() =>
+            host.Api().PutBlobChunkAsync(
+                mock.BaseUri,
+                MessengerServerMock.DefaultToken,
+                "m1",
+                chunkIndex: 0,
+                targetNetworkId: "client1",
+                totalChunks: 1,
+                totalBytes: 999,
+                ciphertext: new byte[] { 1 }));
+
+        Assert.True(ex.IndicatesInsufficientStorage);
+        Assert.Contains(ApiError.InsufficientStorage, ex.ResponseBody, StringComparison.Ordinal);
+    }
 }

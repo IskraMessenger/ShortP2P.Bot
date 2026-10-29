@@ -11,7 +11,7 @@ public sealed class MessengerServerApiException : Exception
         ResponseBody = responseBody;
     }
 
-    public HttpStatusCode? StatusCode { get; }
+    private HttpStatusCode? StatusCode { get; }
 
     public string? ResponseBody { get; }
 
@@ -22,4 +22,8 @@ public sealed class MessengerServerApiException : Exception
         || StatusCode == HttpStatusCode.RequestTimeout
         || StatusCode == HttpStatusCode.ServiceUnavailable
         || StatusCode == HttpStatusCode.GatewayTimeout;
+
+    /// <summary>True when the server returned HTTP 507 (bot chunk upload disk budget exceeded).</summary>
+    public bool IndicatesInsufficientStorage =>
+        StatusCode == HttpStatusCode.InsufficientStorage;
 }

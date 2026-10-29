@@ -161,13 +161,131 @@ public sealed class MessengerServerApiClient : IMessengerServerApiClient
         return await ReadRequiredAsync<BotWaitForIncomeMessagesResponse>(response, cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task SubmitReceiptAsync(
+        Uri serverBaseUrl,
+        BotServerReceiptRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (request is null) throw new ArgumentNullException(nameof(request));
+
+        using var response = await SendAsync(
+            serverBaseUrl,
+            HttpMethod.Post,
+            ServerApiRoutes.BotReceipts,
+            JsonContent.Create(request, options: JsonOptions),
+            HttpTimeout,
+            cancellationToken).ConfigureAwait(false);
+
+        await EnsureSuccessAsync(response, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task PutBlobChunkAsync(
+        Uri serverBaseUrl,
+        string bearerToken,
+        string blobId,
+        int chunkIndex,
+        string targetNetworkId,
+        int totalChunks,
+        long totalBytes,
+        byte[] ciphertext,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(bearerToken))
+            throw new ArgumentException("Bearer token is required.", nameof(bearerToken));
+        if (string.IsNullOrWhiteSpace(blobId))
+            throw new ArgumentException("Blob id is required.", nameof(blobId));
+        if (string.IsNullOrWhiteSpace(targetNetworkId))
+            throw new ArgumentException("Target network id is required.", nameof(targetNetworkId));
+        if (chunkIndex < 0)
+            throw new ArgumentOutOfRangeException(nameof(chunkIndex));
+        if (ciphertext is null)
+            throw new ArgumentNullException(nameof(ciphertext));
+
+        var relativePath =
+            $"{BlobLimits.BlobChunk(blobId, chunkIndex)}" +
+            $"?targetNetworkId={Uri.EscapeDataString(targetNetworkId.Trim())}" +
+            $"&totalChunks={totalChunks}&totalBytes={totalBytes}";
+
+        using var content = new ByteArrayContent(ciphertext);
+        content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
+
+        using var response = await SendAsync(
+            serverBaseUrl,
+            HttpMethod.Put,
+            relativePath,
+            content,
+            HttpTimeout,
+            cancellationToken,
+            bearerToken,
+            BlobLimits.TargetNetworkIdHeader,
+            targetNetworkId.Trim()).ConfigureAwait(false);
+
+        await EnsureSuccessAsync(response, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<BlobChunkManifestDto> GetBlobChunkManifestAsync(
+        Uri serverBaseUrl,
+        string bearerToken,
+        string blobId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(bearerToken))
+            throw new ArgumentException("Bearer token is required.", nameof(bearerToken));
+        if (string.IsNullOrWhiteSpace(blobId))
+            throw new ArgumentException("Blob id is required.", nameof(blobId));
+
+        using var response = await SendAsync(
+            serverBaseUrl,
+            HttpMethod.Get,
+            BlobLimits.BlobChunks(blobId),
+            content: null,
+            HttpTimeout,
+            cancellationToken,
+            bearerToken).ConfigureAwait(false);
+
+        await EnsureSuccessAsync(response, cancellationToken).ConfigureAwait(false);
+        return await ReadRequiredAsync<BlobChunkManifestDto>(response, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<byte[]> GetBlobChunkAsync(
+        Uri serverBaseUrl,
+        string bearerToken,
+        string blobId,
+        int chunkIndex,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(bearerToken))
+            throw new ArgumentException("Bearer token is required.", nameof(bearerToken));
+        if (string.IsNullOrWhiteSpace(blobId))
+            throw new ArgumentException("Blob id is required.", nameof(blobId));
+        if (chunkIndex < 0)
+            throw new ArgumentOutOfRangeException(nameof(chunkIndex));
+
+        using var response = await SendAsync(
+            serverBaseUrl,
+            HttpMethod.Get,
+            BlobLimits.BlobChunk(blobId, chunkIndex),
+            content: null,
+            HttpTimeout,
+            cancellationToken,
+            bearerToken,
+            accept: "application/octet-stream").ConfigureAwait(false);
+
+        await EnsureSuccessAsync(response, cancellationToken).ConfigureAwait(false);
+        return await response.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+    }
+
     private async Task<HttpResponseMessage> SendAsync(
         Uri serverBaseUrl,
         HttpMethod method,
         string relativePath,
         HttpContent? content,
         TimeSpan timeout,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? bearerToken = null,
+        string? extraHeaderName = null,
+        string? extraHeaderValue = null,
+        string? accept = null)
     {
         if (serverBaseUrl is null) throw new ArgumentNullException(nameof(serverBaseUrl));
         if (!serverBaseUrl.IsAbsoluteUri)
@@ -179,6 +297,15 @@ public sealed class MessengerServerApiClient : IMessengerServerApiClient
 
         var requestUri = new Uri(NormalizeBaseUrl(serverBaseUrl), relativePath.TrimStart('/'));
         using var request = new HttpRequestMessage(method, requestUri) { Content = content };
+
+        if (!string.IsNullOrWhiteSpace(bearerToken))
+            request.Headers.TryAddWithoutValidation("Authorization", "Bearer " + bearerToken.Trim());
+
+        if (!string.IsNullOrWhiteSpace(extraHeaderName) && extraHeaderValue is not null)
+            request.Headers.TryAddWithoutValidation(extraHeaderName, extraHeaderValue);
+
+        if (!string.IsNullOrWhiteSpace(accept))
+            request.Headers.TryAddWithoutValidation("Accept", accept);
 
         try
         {

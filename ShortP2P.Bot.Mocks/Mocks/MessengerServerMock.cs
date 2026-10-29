@@ -157,6 +157,62 @@ public sealed class MessengerServerMock : IDisposable
         return this;
     }
 
+    public MessengerServerMock SetupReceipts()
+    {
+        _server
+            .Given(Request.Create().WithPath(ServerApiRoutes.BotReceipts).UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(204));
+        return this;
+    }
+
+    public MessengerServerMock SetupPutBlobChunk(string blobId = "m1", int chunkIndex = 0)
+    {
+        _server
+            .Given(Request.Create().WithPath(BlobLimits.BlobChunk(blobId, chunkIndex)).UsingPut())
+            .RespondWith(Response.Create().WithStatusCode(202));
+        return this;
+    }
+
+    public MessengerServerMock SetupGetBlobChunkManifest(BlobChunkManifestDto? manifest = null)
+    {
+        var body = manifest ?? new BlobChunkManifestDto
+        {
+            BlobId = "m1",
+            TotalChunks = 1,
+            TotalBytes = 3,
+            Indexes = [0]
+        };
+
+        _server
+            .Given(Request.Create().WithPath(BlobLimits.BlobChunks(body.BlobId)).UsingGet())
+            .RespondWith(Json(200, body));
+        return this;
+    }
+
+    public MessengerServerMock SetupGetBlobChunk(string blobId = "m1", int chunkIndex = 0, byte[]? ciphertext = null)
+    {
+        var bytes = ciphertext ?? new byte[] { 1, 2, 3 };
+        _server
+            .Given(Request.Create().WithPath(BlobLimits.BlobChunk(blobId, chunkIndex)).UsingGet())
+            .RespondWith(Response.Create()
+                .WithStatusCode(200)
+                .WithHeader("Content-Type", "application/octet-stream")
+                .WithBody(bytes));
+        return this;
+    }
+
+    public MessengerServerMock SetupPutBlobChunkInsufficientStorage(string blobId = "m1", int chunkIndex = 0)
+    {
+        _server
+            .Given(Request.Create().WithPath(BlobLimits.BlobChunk(blobId, chunkIndex)).UsingPut())
+            .RespondWith(Json(507, new ApiError
+            {
+                Code = ApiError.InsufficientStorage,
+                Message = "Not enough free disk budget for this file."
+            }));
+        return this;
+    }
+
     public MessengerServerMock SetupSendMessagesUnavailable()
     {
         _server
