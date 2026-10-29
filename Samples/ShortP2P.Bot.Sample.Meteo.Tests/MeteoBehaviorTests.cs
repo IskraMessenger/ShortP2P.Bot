@@ -41,6 +41,32 @@ public sealed class MeteoBehaviorTests
     }
 
     [Fact]
+    public void Conditions_MapCloudAndSleet()
+    {
+        Assert.Equal("облачно", MeteoTexts.Condition("ru", 3));
+        Assert.Equal("снег с дождём", MeteoTexts.Condition("ru", 66));
+        Assert.Equal("cloudy", MeteoTexts.Condition("en", 2));
+        Assert.Equal("snow and rain", MeteoTexts.Condition("en", 67));
+        Assert.Equal("туман", MeteoTexts.Condition("ru", 45));
+        Assert.Equal("гроза", MeteoTexts.Condition("ru", 95));
+    }
+
+    [Theory]
+    [InlineData("ru", "Здравствуйте", "Всего Вам доброго!")]
+    [InlineData("en", "Hello", "All the best!")]
+    [InlineData("es", "Hola", "¡Que le vaya bien!")]
+    [InlineData("de", "Guten Tag", "Alles Gute!")]
+    [InlineData("fr", "Bonjour", "Tous mes vœux !")]
+    [InlineData("cn", "您好", "祝您一切顺利！")]
+    public void VoiceScript_WrapsTheReport(string language, string greeting, string farewell)
+    {
+        var script = MeteoTexts.VoiceScript(language, "Moscow\nTemperature: 1 °C");
+        Assert.StartsWith(greeting + ". ", script);
+        Assert.Contains("Moscow Temperature: 1 °C", script);
+        Assert.EndsWith(farewell, script);
+    }
+
+    [Fact]
     public void Report_UsesRussianLabels()
     {
         var text = MeteoTexts.FormatReport("ru", "Москва, Россия", "2026-10-26 14:00", 8.2, 70, 0);

@@ -7,7 +7,7 @@ namespace ShortP2P.Bot.Sample.Echo;
 
 /// <summary>
 /// Matches ShortP2P.Client <c>MessengerServerPayloadCodec</c> + <c>RsaKeySerializer</c> public JSON
-/// and ChatWire text frames (<c>S2P1</c> + kind 0x01).
+/// and ChatWire frames (<c>S2P1</c>: text 0x01, image 0x02, file 0x03, transfer offer 0x04).
 /// </summary>
 internal static class BotMessageCrypto
 {
@@ -17,6 +17,9 @@ internal static class BotMessageCrypto
     private const int TagBytes = 16;
     private static ReadOnlySpan<byte> WireMagic => "S2P1"u8;
     private const byte KindText = 0x01;
+    private const byte KindImage = 0x02;
+    private const byte KindFile = 0x03;
+    private const byte KindTransferOffer = 0x04;
 
     public static (string PublicJson, string PrivateJson) CreateRsaKeyPairJson()
     {
@@ -53,6 +56,70 @@ internal static class BotMessageCrypto
         var wire = EncodeChatWireText(text);
         return Convert.ToBase64String(EncryptEnvelope(wire, recipientPublicKeyJson));
     }
+
+    public static byte[] EncodeChatWireImage(string mimeType, ReadOnlySpan<byte> imageBytes)
+    {
+        var mime = Encoding.UTF8.GetBytes(mimeType.Trim());
+        if (mime.Length > ushort.MaxValue)
+            throw new ArgumentException("MIME type is too long.", nameof(mimeType));
+
+        var buf = new byte[WireMagic.Length + 1 + 2 + mime.Length + 4 + imageBytes.Length];
+        WireMagic.CopyTo(buf);
+        buf[WireMagic.Length] = KindImage;
+        BinaryPrimitives.WriteUInt16LittleEndian(buf.AsSpan(WireMagic.Length + 1, 2), (ushort)mime.Length);
+        mime.CopyTo(buf.AsSpan(WireMagic.Length + 1 + 2));
+        var offset = WireMagic.Length + 1 + 2 + mime.Length;
+        BinaryPrimitives.WriteUInt32LittleEndian(buf.AsSpan(offset, 4), (uint)imageBytes.Length);
+        imageBytes.CopyTo(buf.AsSpan(offset + 4));
+        return buf;
+    }
+
+    public static byte[] EncodeChatWireFile(string fileName, string mimeType, ReadOnlySpan<byte> fileBytes)
+    {
+        var mime = Encoding.UTF8.GetBytes(mimeType.Trim());
+        if (mime.Length > ushort.MaxValue)
+            throw new ArgumentException("MIME type is too long.", nameof(mimeType));
+
+        var name = Encoding.UTF8.GetBytes(NormalizeWireFileName(fileName));
+        if (name.Length > ushort.MaxValue)
+            throw new ArgumentException("File name is too long.", nameof(fileName));
+
+        var buf = new byte[WireMagic.Length + 1 + 2 + mime.Length + 2 + name.Length + 4 + fileBytes.Length];
+        WireMagic.CopyTo(buf);
+        buf[WireMagic.Length] = KindFile;
+        var offset = WireMagic.Length + 1;
+        BinaryPrimitives.WriteUInt16LittleEndian(buf.AsSpan(offset, 2), (ushort)mime.Length);
+        offset += 2;
+        mime.CopyTo(buf.AsSpan(offset));
+        offset += mime.Length;
+        BinaryPrimitives.WriteUInt16LittleEndian(buf.AsSpan(offset, 2), (ushort)name.Length);
+        offset += 2;
+        name.CopyTo(buf.AsSpan(offset));
+        offset += name.Length;
+        BinaryPrimitives.WriteUInt32LittleEndian(buf.AsSpan(offset, 4), (uint)fileBytes.Length);
+        offset += 4;
+        fileBytes.CopyTo(buf.AsSpan(offset));
+        return buf;
+    }
+
+    /// <summary>
+    /// JSON frame the client stores as an incoming attachment and then downloads as blob chunks.
+    /// Property names match <c>ShortP2P.Client.ChatMedia.ChatWireTransferOffer</c>.
+    /// </summary>
+    public static byte[] EncodeChatWireTransferOffer(ChatWireTransferOffer offer)
+    {
+        if (offer is null) throw new ArgumentNullException(nameof(offer));
+        var json = JsonSerializer.SerializeToUtf8Bytes(offer);
+        var buf = new byte[WireMagic.Length + 1 + 4 + json.Length];
+        WireMagic.CopyTo(buf);
+        buf[WireMagic.Length] = KindTransferOffer;
+        BinaryPrimitives.WriteUInt32LittleEndian(buf.AsSpan(WireMagic.Length + 1, 4), (uint)json.Length);
+        json.CopyTo(buf.AsSpan(WireMagic.Length + 1 + 4));
+        return buf;
+    }
+
+    public static string Sha256Hex(ReadOnlySpan<byte> data) =>
+        Convert.ToHexString(SHA256.HashData(data)).ToLowerInvariant();
 
     public static byte[] EncodeChatWireText(string text)
     {
@@ -172,6 +239,12 @@ internal static class BotMessageCrypto
         return Encoding.UTF8.GetString(payload.Slice(start, (int)len));
     }
 
+    private static string NormalizeWireFileName(string fileName)
+    {
+        var name = Path.GetFileName(fileName.Trim());
+        return string.IsNullOrEmpty(name) ? "file" : name;
+    }
+
     private sealed class PublicDto
     {
         public string M { get; set; } = "";
@@ -190,3 +263,18 @@ internal static class BotMessageCrypto
         public string IQ { get; set; } = "";
     }
 }
+
+/// <summary>Bot → client attachment locator. Ciphertext chunks use <see cref="TransferId"/> as the blob id.</summary>
+internal sealed record ChatWireTransferOffer(
+    string TransferId,
+    string TransferToken,
+    string PayloadKind,
+    string FileName,
+    string MimeType,
+    long SizeBytes,
+    string Host,
+    int Port,
+    long ExpiresUtcTicks,
+    string BlobId,
+    int TotalChunks,
+    string CiphertextSha256);

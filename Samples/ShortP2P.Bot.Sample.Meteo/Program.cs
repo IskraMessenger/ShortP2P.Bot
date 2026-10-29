@@ -8,6 +8,7 @@ using ShortP2P.Bot.Http;
 using ShortP2P.Bot.Sample.Configuration;
 using ShortP2P.Bot.Sample.Meteo;
 using ShortP2P.Bot.Sample.Meteo.Commands;
+using ShortP2P.Bot.Sample.Meteo.Media;
 using ShortP2P.Bot.Sample.Meteo.Storage;
 using ShortP2P.Bot.Sample.Meteo.Weather;
 using ShortP2P.Bot.Sample.Storage;
@@ -36,6 +37,7 @@ builder.Services.AddHttpClient<OpenMeteoClient>(client =>
 });
 builder.Services.AddSingleton<WeatherService>();
 builder.Services.AddSingleton<MeteoCommandHandler>();
+builder.Services.AddSingleton<WeatherAttachmentSender>();
 builder.Services.AddShortP2PBot();
 // Prefer the sample SQLite-backed cert over the library auto-generated PFX.
 builder.Services.AddSingleton<IBotCertificateProvider, StoreBackedBotCertificateProvider>();

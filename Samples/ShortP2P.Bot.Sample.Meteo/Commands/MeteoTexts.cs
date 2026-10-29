@@ -144,6 +144,8 @@ internal static class MeteoTexts
             ("en", "snow") => "snow",
             ("en", "fog") => "fog",
             ("en", "thunderstorm") => "thunderstorm",
+            ("en", "cloudy") => "cloudy",
+            ("en", "sleet") => "snow and rain",
             ("es", "sun") => "sol",
             ("es", "dry") => "seco",
             ("es", "rain") => "lluvia",
@@ -151,6 +153,8 @@ internal static class MeteoTexts
             ("es", "snow") => "nieve",
             ("es", "fog") => "niebla",
             ("es", "thunderstorm") => "tormenta",
+            ("es", "cloudy") => "nublado",
+            ("es", "sleet") => "nieve y lluvia",
             ("de", "sun") => "Sonne",
             ("de", "dry") => "trocken",
             ("de", "rain") => "Regen",
@@ -158,6 +162,8 @@ internal static class MeteoTexts
             ("de", "snow") => "Schnee",
             ("de", "fog") => "Nebel",
             ("de", "thunderstorm") => "Gewitter",
+            ("de", "cloudy") => "bewölkt",
+            ("de", "sleet") => "Schnee und Regen",
             ("fr", "sun") => "soleil",
             ("fr", "dry") => "sec",
             ("fr", "rain") => "pluie",
@@ -165,6 +171,8 @@ internal static class MeteoTexts
             ("fr", "snow") => "neige",
             ("fr", "fog") => "brouillard",
             ("fr", "thunderstorm") => "orage",
+            ("fr", "cloudy") => "nuageux",
+            ("fr", "sleet") => "neige et pluie",
             ("cn", "sun") => "晴",
             ("cn", "dry") => "干燥",
             ("cn", "rain") => "雨",
@@ -172,6 +180,8 @@ internal static class MeteoTexts
             ("cn", "snow") => "雪",
             ("cn", "fog") => "雾",
             ("cn", "thunderstorm") => "雷暴",
+            ("cn", "cloudy") => "多云",
+            ("cn", "sleet") => "雨夹雪",
             (_, "sun") => "солнце",
             (_, "dry") => "сухо",
             (_, "rain") => "дождь",
@@ -179,6 +189,8 @@ internal static class MeteoTexts
             (_, "snow") => "снег",
             (_, "fog") => "туман",
             (_, "thunderstorm") => "гроза",
+            (_, "cloudy") => "облачно",
+            (_, "sleet") => "снег с дождём",
             _ => "сухо"
         };
     }
@@ -186,14 +198,42 @@ internal static class MeteoTexts
     public static string ConditionKey(int weatherCode) => weatherCode switch
     {
         0 or 1 => "sun",
-        2 or 3 => "dry",
+        2 or 3 => "cloudy",
         45 or 48 => "fog",
-        51 or 53 or 55 or 56 or 57 => "drizzle",
-        61 or 63 or 65 or 66 or 67 or 80 or 81 or 82 => "rain",
+        51 or 53 or 55 => "drizzle",
+        56 or 57 or 66 or 67 => "sleet",
+        61 or 63 or 65 or 80 or 81 or 82 => "rain",
         71 or 73 or 75 or 77 or 85 or 86 => "snow",
         95 or 96 or 99 => "thunderstorm",
         _ => "dry"
     };
+
+    public static string VoiceGreeting(string language) => language switch
+    {
+        "en" => "Hello",
+        "es" => "Hola",
+        "de" => "Guten Tag",
+        "fr" => "Bonjour",
+        "cn" => "您好",
+        _ => "Здравствуйте"
+    };
+
+    public static string VoiceFarewell(string language) => language switch
+    {
+        "en" => "All the best!",
+        "es" => "¡Que le vaya bien!",
+        "de" => "Alles Gute!",
+        "fr" => "Tous mes vœux !",
+        "cn" => "祝您一切顺利！",
+        _ => "Всего Вам доброго!"
+    };
+
+    /// <summary>Greeting, then the weather text, then the farewell. Newlines are read as pauses.</summary>
+    public static string VoiceScript(string language, string report)
+    {
+        var body = string.Join(' ', (report ?? "").Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)).Trim();
+        return VoiceGreeting(language) + ". " + body + ". " + VoiceFarewell(language);
+    }
 
     private static string Greeting(string language) => language switch
     {

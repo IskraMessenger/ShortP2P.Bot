@@ -5,6 +5,7 @@ using ShortP2P.Bot.Messaging;
 using ShortP2P.Bot.Sample.Configuration;
 using ShortP2P.Bot.Sample.Echo;
 using ShortP2P.Bot.Sample.Meteo.Commands;
+using ShortP2P.Bot.Sample.Meteo.Media;
 using ShortP2P.Bot.Sample.Storage;
 
 namespace ShortP2P.Bot.Sample.Meteo;
@@ -18,6 +19,7 @@ internal sealed class MeteoBotService : BackgroundService
     private readonly IBotCertificateStore _certificates;
     private readonly SqliteMessageKeyStore _messageKeys;
     private readonly MeteoCommandHandler _commands;
+    private readonly WeatherAttachmentSender _attachments;
     private readonly SampleBotOptions _options;
     private readonly ILogger<MeteoBotService> _logger;
     private string _privateKeyJson = "";
@@ -28,6 +30,7 @@ internal sealed class MeteoBotService : BackgroundService
         IBotCertificateStore certificates,
         SqliteMessageKeyStore messageKeys,
         MeteoCommandHandler commands,
+        WeatherAttachmentSender attachments,
         IOptions<SampleBotOptions> options,
         ILogger<MeteoBotService> logger)
     {
@@ -36,6 +39,7 @@ internal sealed class MeteoBotService : BackgroundService
         _certificates = certificates ?? throw new ArgumentNullException(nameof(certificates));
         _messageKeys = messageKeys ?? throw new ArgumentNullException(nameof(messageKeys));
         _commands = commands ?? throw new ArgumentNullException(nameof(commands));
+        _attachments = attachments ?? throw new ArgumentNullException(nameof(attachments));
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
@@ -201,7 +205,7 @@ internal sealed class MeteoBotService : BackgroundService
             string encryptedReply;
             try
             {
-                encryptedReply = BotMessageCrypto.EncryptTextToEnvelopeBase64(reply, clientPub);
+                encryptedReply = BotMessageCrypto.EncryptTextToEnvelopeBase64(reply.Text, clientPub);
             }
             catch (Exception ex)
             {
@@ -215,7 +219,13 @@ internal sealed class MeteoBotService : BackgroundService
                 EncryptedMessageBase64 = encryptedReply,
                 CorrelationId = message.CorrelationId
             });
-            _logger.LogInformation("Prepared reply to {ClientNetworkId}: {Reply}", message.NetworkId, reply);
+            _logger.LogInformation("Prepared reply to {ClientNetworkId}: {Reply}", message.NetworkId, reply.Text);
+
+            if (reply.Report is not null)
+            {
+                var media = await PrepareWeatherMediaAsync(message, reply, clientPub, stoppingToken).ConfigureAwait(false);
+                replies.AddRange(media);
+            }
         }
 
         if (replies.Count == 0)
@@ -226,6 +236,56 @@ internal sealed class MeteoBotService : BackgroundService
 
         foreach (var reply in replies)
             _logger.LogInformation("Sent reply to {ClientNetworkId}", reply.NetworkId);
+    }
+
+    private async Task<IReadOnlyList<BotClientMessageDto>> PrepareWeatherMediaAsync(
+        BotClientMessageDto message,
+        CommandResult reply,
+        string clientPublicKey,
+        CancellationToken cancellationToken)
+    {
+        byte[]? png = null;
+        byte[]? voice = null;
+        var condition = MeteoTexts.ConditionKey(reply.Report!.WeatherCode);
+        try
+        {
+            png = WeatherPicture.Render(condition);
+            _logger.LogInformation("Weather picture {Condition} is {Bytes} bytes", condition, png.Length);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "Weather picture failed for {ClientNetworkId}", message.NetworkId);
+        }
+
+        try
+        {
+            var script = MeteoTexts.VoiceScript(reply.Language, reply.Text);
+            voice = await WeatherVoice.SynthesizeAsync(reply.Language, script, cancellationToken).ConfigureAwait(false);
+            _logger.LogInformation("Weather voice is {Bytes} bytes", voice.Length);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "Weather voice failed for {ClientNetworkId}", message.NetworkId);
+        }
+
+        if (png is null && voice is null)
+            return Array.Empty<BotClientMessageDto>();
+
+        try
+        {
+            return await _attachments.UploadAsync(
+                message.NetworkId,
+                clientPublicKey,
+                message.CorrelationId,
+                png,
+                voice,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "Weather blob upload failed for {ClientNetworkId}", message.NetworkId);
+            return Array.Empty<BotClientMessageDto>();
+        }
     }
 
     private Uri RequireServerUri()

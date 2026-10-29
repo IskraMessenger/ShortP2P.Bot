@@ -16,67 +16,72 @@ internal sealed class MeteoCommandHandler
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
-    public async Task<string> HandleAsync(string clientNetworkId, string text, CancellationToken cancellationToken)
+    public async Task<CommandResult> HandleAsync(string clientNetworkId, string text, CancellationToken cancellationToken)
     {
         var session = _chats.GetOrCreate(clientNetworkId);
         _chats.AddMessage(clientNetworkId, "in", text);
         var reply = await ReplyAsync(session, text, cancellationToken).ConfigureAwait(false);
         _chats.Save(session);
-        _chats.AddMessage(clientNetworkId, "out", reply);
+        _chats.AddMessage(clientNetworkId, "out", reply.Text);
         return reply;
     }
 
-    private async Task<string> ReplyAsync(ChatSession session, string text, CancellationToken cancellationToken)
+    private async Task<CommandResult> ReplyAsync(ChatSession session, string text, CancellationToken cancellationToken)
     {
         var command = CommandParser.Parse(text);
         if (command is StartCommand)
         {
             session.IsActive = true;
-            return MeteoTexts.Start(session.Language);
+            return CommandResult.TextOnly(MeteoTexts.Start(session.Language), session.Language);
         }
 
         if (!session.IsActive)
-            return MeteoTexts.NeedStart(session.Language);
+            return CommandResult.TextOnly(MeteoTexts.NeedStart(session.Language), session.Language);
 
         switch (command)
         {
             case StopCommand:
                 session.IsActive = false;
-                return MeteoTexts.Stopped(session.Language);
+                return CommandResult.TextOnly(MeteoTexts.Stopped(session.Language), session.Language);
             case LangCommand lang:
                 if (!MeteoTexts.TryNormalizeLanguage(lang.Code, out var language))
-                    return MeteoTexts.UnknownLanguage(session.Language);
+                    return CommandResult.TextOnly(MeteoTexts.UnknownLanguage(session.Language), session.Language);
                 session.Language = language;
-                return MeteoTexts.LanguageChanged(language);
+                return CommandResult.TextOnly(MeteoTexts.LanguageChanged(language), language);
             case WeatherCommand weather:
                 return await WeatherReplyAsync(session.Language, weather.Query, cancellationToken).ConfigureAwait(false);
             default:
-                return MeteoTexts.Help(session.Language);
+                return CommandResult.TextOnly(MeteoTexts.Help(session.Language), session.Language);
         }
     }
 
-    private async Task<string> WeatherReplyAsync(string language, string query, CancellationToken cancellationToken)
+    private async Task<CommandResult> WeatherReplyAsync(string language, string query, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(query))
-            return MeteoTexts.WeatherUsage(language);
+            return CommandResult.TextOnly(MeteoTexts.WeatherUsage(language), language);
 
         if (LooksLikeCoordinates(query) && !GeoQuery.TryParseCoordinates(query, out _))
-            return MeteoTexts.InvalidCoordinates(language);
+            return CommandResult.TextOnly(MeteoTexts.InvalidCoordinates(language), language);
 
         try
         {
             var report = await _weather.GetAsync(query, language, cancellationToken).ConfigureAwait(false);
-            return MeteoTexts.FormatReport(
-                language,
-                report.DisplayName,
-                report.ObservedAt,
-                report.TemperatureC,
-                report.HumidityPercent,
-                report.WeatherCode);
+            return new CommandResult
+            {
+                Language = language,
+                Report = report,
+                Text = MeteoTexts.FormatReport(
+                    language,
+                    report.DisplayName,
+                    report.ObservedAt,
+                    report.TemperatureC,
+                    report.HumidityPercent,
+                    report.WeatherCode)
+            };
         }
         catch (PlaceNotFoundException)
         {
-            return MeteoTexts.PlaceNotFound(language);
+            return CommandResult.TextOnly(MeteoTexts.PlaceNotFound(language), language);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -85,7 +90,7 @@ internal sealed class MeteoCommandHandler
         catch (Exception ex)
         {
             _logger.LogError(ex, "Weather request failed for {Query}", query);
-            return MeteoTexts.WeatherUnavailable(language);
+            return CommandResult.TextOnly(MeteoTexts.WeatherUnavailable(language), language);
         }
     }
 
