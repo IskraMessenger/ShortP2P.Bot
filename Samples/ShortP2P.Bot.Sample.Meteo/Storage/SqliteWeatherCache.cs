@@ -40,7 +40,7 @@ internal sealed class SqliteWeatherCache
         });
     }
 
-    public WeatherReport? TryGetPlace(string placeKey, DateTime utcNow)
+    public WeatherReport? TryGetPlace(string provider, string placeKey, DateTime utcNow)
     {
         var cutoff = Cutoff(utcNow);
         return _database.Execute(connection =>
@@ -52,10 +52,11 @@ internal sealed class SqliteWeatherCache
                 SELECT latitude, longitude, display_name, temperature_c, humidity_percent,
                        weather_code, observed_at, fetched_at_utc
                 FROM weather_cache
-                WHERE kind = 'place' AND place_key = $key AND fetched_at_utc >= $cutoff
+                WHERE kind = $kind AND place_key = $key AND fetched_at_utc >= $cutoff
                 ORDER BY fetched_at_utc DESC
                 LIMIT 1;
                 """;
+            command.Parameters.AddWithValue("$kind", PlaceKind(provider));
             command.Parameters.AddWithValue("$key", placeKey);
             command.Parameters.AddWithValue("$cutoff", cutoff);
             using var reader = command.ExecuteReader();
@@ -63,7 +64,7 @@ internal sealed class SqliteWeatherCache
         });
     }
 
-    public WeatherReport? TryGetCoordinates(double latitude, double longitude, DateTime utcNow)
+    public WeatherReport? TryGetCoordinates(string provider, double latitude, double longitude, DateTime utcNow)
     {
         var cutoff = Cutoff(utcNow);
         var target = new GeoPoint(latitude, longitude);
@@ -76,8 +77,9 @@ internal sealed class SqliteWeatherCache
                 SELECT latitude, longitude, display_name, temperature_c, humidity_percent,
                        weather_code, observed_at, fetched_at_utc
                 FROM weather_cache
-                WHERE kind = 'coordinates' AND fetched_at_utc >= $cutoff;
+                WHERE kind = $kind AND fetched_at_utc >= $cutoff;
                 """;
+            command.Parameters.AddWithValue("$kind", CoordinatesKind(provider));
             command.Parameters.AddWithValue("$cutoff", cutoff);
             using var reader = command.ExecuteReader();
             WeatherReport? best = null;
@@ -96,22 +98,28 @@ internal sealed class SqliteWeatherCache
         });
     }
 
-    public void SavePlace(string placeKey, WeatherReport report)
+    public void SavePlace(string provider, string placeKey, WeatherReport report)
     {
+        var kind = PlaceKind(provider);
         _database.Execute(connection =>
         {
             using var delete = connection.CreateCommand();
-            delete.CommandText = "DELETE FROM weather_cache WHERE kind = 'place' AND place_key = $key;";
+            delete.CommandText = "DELETE FROM weather_cache WHERE kind = $kind AND place_key = $key;";
+            delete.Parameters.AddWithValue("$kind", kind);
             delete.Parameters.AddWithValue("$key", placeKey);
             delete.ExecuteNonQuery();
-            Insert(connection, "place", placeKey, report);
+            Insert(connection, kind, placeKey, report);
         });
     }
 
-    public void SaveCoordinates(WeatherReport report)
+    public void SaveCoordinates(string provider, WeatherReport report)
     {
-        _database.Execute(connection => Insert(connection, "coordinates", null, report));
+        _database.Execute(connection => Insert(connection, CoordinatesKind(provider), null, report));
     }
+
+    private static string PlaceKind(string provider) => "place:" + provider;
+
+    private static string CoordinatesKind(string provider) => "coordinates:" + provider;
 
     private static void Insert(SqliteConnection connection, string kind, string? placeKey, WeatherReport report)
     {

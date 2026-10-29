@@ -1,24 +1,56 @@
 using System.Globalization;
+using Microsoft.Extensions.Options;
+using ShortP2P.Bot.Sample.Configuration;
 using ShortP2P.Bot.Sample.Meteo.Storage;
 
 namespace ShortP2P.Bot.Sample.Meteo.Weather;
 
 internal sealed class WeatherService
 {
-    private readonly OpenMeteoClient _meteo;
+    private readonly IPlaceGeocoder _geocoder;
+    private readonly ICurrentWeatherSource _current;
     private readonly SqliteWeatherCache _cache;
+    private readonly string _provider;
+    private readonly bool _mock;
     private readonly ILogger<WeatherService> _logger;
 
-    public WeatherService(OpenMeteoClient meteo, SqliteWeatherCache cache, ILogger<WeatherService> logger)
+    public WeatherService(
+        IPlaceGeocoder geocoder,
+        ICurrentWeatherSource current,
+        SqliteWeatherCache cache,
+        IOptions<WeatherOptions> weather,
+        IOptions<SampleBotOptions> bot,
+        ILogger<WeatherService> logger)
     {
-        _meteo = meteo ?? throw new ArgumentNullException(nameof(meteo));
+        _geocoder = geocoder ?? throw new ArgumentNullException(nameof(geocoder));
+        _current = current ?? throw new ArgumentNullException(nameof(current));
         _cache = cache ?? throw new ArgumentNullException(nameof(cache));
+        if (weather is null)
+            throw new ArgumentNullException(nameof(weather));
+        if (bot is null)
+            throw new ArgumentNullException(nameof(bot));
+        _provider = WeatherProviders.Name(WeatherProviders.Parse(weather.Value.Provider));
+        _mock = bot.Value.Bot.IsMock;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        if (_mock)
+            _logger.LogInformation("Bot:IsMock is on; weather replies use fixed sample data");
+        else
+            _logger.LogInformation(
+                "Weather provider is {Provider}; place search uses {Geocoder}",
+                _provider,
+                _provider == WeatherProviders.OpenMeteo ? WeatherProviders.OpenMeteo : "OpenStreetMap");
     }
 
     public async Task<WeatherReport> GetAsync(string query, string language, CancellationToken cancellationToken)
     {
         var utcNow = DateTime.UtcNow;
+        if (_mock)
+        {
+            if (GeoQuery.TryParseCoordinates(query, out var mockPoint))
+                return MockWeather.ForCoordinates(mockPoint, utcNow);
+            return MockWeather.ForPlace(query, utcNow);
+        }
+
         if (GeoQuery.TryParseCoordinates(query, out var point))
             return await GetByCoordinatesAsync(point, language, utcNow, cancellationToken).ConfigureAwait(false);
 
@@ -32,18 +64,18 @@ internal sealed class WeatherService
         CancellationToken cancellationToken)
     {
         var key = GeoQuery.NormalizePlaceKey(query);
-        var cached = _cache.TryGetPlace(key, utcNow);
+        var cached = _cache.TryGetPlace(_provider, key, utcNow);
         if (cached is not null)
         {
             _logger.LogInformation("Weather cache hit for place {Place}", key);
             return cached;
         }
 
-        var geo = await _meteo.SearchAsync(query.Trim(), language, cancellationToken).ConfigureAwait(false)
+        var geo = await _geocoder.SearchAsync(query.Trim(), language, cancellationToken).ConfigureAwait(false)
                   ?? throw new PlaceNotFoundException();
         var report = await FetchAsync(geo.DisplayName, geo.Latitude, geo.Longitude, utcNow, cancellationToken)
             .ConfigureAwait(false);
-        _cache.SavePlace(key, report);
+        _cache.SavePlace(_provider, key, report);
         _logger.LogInformation("Weather stored in cache for place {Place}", key);
         return report;
     }
@@ -54,7 +86,7 @@ internal sealed class WeatherService
         DateTime utcNow,
         CancellationToken cancellationToken)
     {
-        var cached = _cache.TryGetCoordinates(point.Latitude, point.Longitude, utcNow);
+        var cached = _cache.TryGetCoordinates(_provider, point.Latitude, point.Longitude, utcNow);
         if (cached is not null)
         {
             _logger.LogInformation(
@@ -68,7 +100,7 @@ internal sealed class WeatherService
         GeoHit? geo = null;
         try
         {
-            geo = await _meteo.ReverseAsync(point.Latitude, point.Longitude, language, cancellationToken)
+            geo = await _geocoder.ReverseAsync(point.Latitude, point.Longitude, language, cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -82,7 +114,7 @@ internal sealed class WeatherService
                       + point.Longitude.ToString("0.####", CultureInfo.InvariantCulture);
         var report = await FetchAsync(display, point.Latitude, point.Longitude, utcNow, cancellationToken)
             .ConfigureAwait(false);
-        _cache.SaveCoordinates(report);
+        _cache.SaveCoordinates(_provider, report);
         _logger.LogInformation(
             "Weather stored in cache for coordinates {Latitude}, {Longitude}",
             point.Latitude,
@@ -97,7 +129,7 @@ internal sealed class WeatherService
         DateTime utcNow,
         CancellationToken cancellationToken)
     {
-        var forecast = await _meteo.CurrentAsync(latitude, longitude, cancellationToken).ConfigureAwait(false);
+        var forecast = await _current.CurrentAsync(latitude, longitude, cancellationToken).ConfigureAwait(false);
         return new WeatherReport
         {
             DisplayName = displayName,

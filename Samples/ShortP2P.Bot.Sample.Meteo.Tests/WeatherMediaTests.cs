@@ -1,7 +1,10 @@
+using System.Drawing;
 using System.Text;
 using System.Text.Json;
+using NAudio.Wave;
 using ShortP2P.Bot.Contracts;
 using ShortP2P.Bot.Sample.Echo;
+using ShortP2P.Bot.Sample.Meteo.Commands;
 using ShortP2P.Bot.Sample.Meteo.Media;
 
 namespace ShortP2P.Bot.Sample.Meteo.Tests;
@@ -18,11 +21,21 @@ public sealed class WeatherMediaTests
     [InlineData("fog")]
     [InlineData("thunderstorm")]
     [InlineData("dry")]
-    public void Picture_IsPngBetween100And150Kb(string condition)
+    public void Picture_IsPlainDecodablePng(string condition)
     {
         var png = WeatherPicture.Render(condition);
-        Assert.InRange(png.Length, WeatherPicture.MinBytes, WeatherPicture.MaxBytes);
+        Assert.InRange(png.Length, 1024, 64 * 1024);
         Assert.Equal(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }, png.AsSpan(0, 8).ToArray());
+        Assert.Equal(WeatherPicture.SceneWidth, ReadPngInt(png, 16));
+        Assert.Equal(WeatherPicture.SceneHeight, ReadPngInt(png, 20));
+        Assert.Equal("IEND", Encoding.ASCII.GetString(png, png.Length - 8, 4));
+        Assert.True(IndexOf(png, "meTa"u8.ToArray()) < 0, "PNG still contains a private padding chunk");
+#pragma warning disable CA1416
+        using var stream = new MemoryStream(png);
+        using var image = Image.FromStream(stream);
+        Assert.Equal(WeatherPicture.SceneWidth, image.Width);
+        Assert.Equal(WeatherPicture.SceneHeight, image.Height);
+#pragma warning restore CA1416
     }
 
     [Fact]
@@ -47,6 +60,22 @@ public sealed class WeatherMediaTests
         Assert.Equal(10, chunks[1].Length);
         Assert.Equal(1, chunks[0][0]);
         Assert.Equal(2, chunks[1][^1]);
+    }
+
+    [Fact]
+    public void Archive_WritesPngAndM4aUnderSaved()
+    {
+        var png = new byte[] { 0x89, 0x50, 0x4E, 0x47, 1, 2, 3 };
+        var m4a = new byte[] { 0, 0, 0, 0x18, (byte)'f', (byte)'t', (byte)'y', (byte)'p' };
+        var paths = WeatherMediaArchive.Save("rain", "ru", png, m4a);
+        Assert.Equal(2, paths.Count);
+        foreach (var path in paths)
+        {
+            Assert.StartsWith(WeatherMediaArchive.RootDirectory, path);
+            Assert.True(File.Exists(path));
+            Assert.True(path.EndsWith(".png") || path.EndsWith(".m4a"));
+            File.Delete(path);
+        }
     }
 
     [Fact]
@@ -92,13 +121,59 @@ public sealed class WeatherMediaTests
         // Windows MF AAC at 44.1 kHz mono exposes 48/64/96… kbit/s — no exact 80; 64 wins the tie with 96.
         Assert.True(selected is 64_000 or 96_000, $"Unexpected nearest rate: {selected}");
 
-        var script = "Hello. Temperature one degree Celsius. Humidity seventy percent. All the best!";
+        var script = MeteoTexts.VoiceScript("en", 1.0, 70, 3);
         var m4a = await WeatherVoice.SynthesizeAsync("en", script, CancellationToken.None);
         Assert.True(m4a.Length > 256);
         Assert.Equal("ftyp", Encoding.ASCII.GetString(m4a, 4, 4));
+        Assert.Equal("M4A ", Encoding.ASCII.GetString(m4a, 8, 4));
+        var moov = IndexOf(m4a, "moov"u8.ToArray());
+        var mdat = IndexOf(m4a, "mdat"u8.ToArray());
+        Assert.True(moov >= 0 && mdat > moov, "m4a moov does not precede mdat");
+        Assert.True(IndexOf(m4a, "uuid"u8.ToArray()) < 0, "m4a still contains a Media Foundation uuid box");
+        AssertAlignedMp4(m4a);
 
         var kbps = AverageBitRateKbps(m4a);
         Assert.InRange(kbps, selected / 1000 - 16, selected / 1000 + 16);
+        Assert.True(MeanAbsoluteSample(m4a) > 80, "m4a decoded to silence");
+    }
+
+    private static int ReadPngInt(byte[] png, int offset) =>
+        (png[offset] << 24) | (png[offset + 1] << 16) | (png[offset + 2] << 8) | png[offset + 3];
+
+    private static double MeanAbsoluteSample(byte[] m4a)
+    {
+        var path = Path.Combine(Path.GetTempPath(), "meteo-voice-" + Guid.NewGuid().ToString("N") + ".m4a");
+        File.WriteAllBytes(path, m4a);
+        try
+        {
+            using var reader = new MediaFoundationReader(path);
+            var buffer = new byte[Math.Max(2, reader.WaveFormat.AverageBytesPerSecond)];
+            long sum = 0;
+            long count = 0;
+            int read;
+            while ((read = reader.Read(buffer, 0, buffer.Length)) > 0)
+            {
+                var samples = read / 2;
+                for (var i = 0; i < samples; i++)
+                {
+                    sum += Math.Abs(BitConverter.ToInt16(buffer, i * 2));
+                    count++;
+                }
+            }
+
+            Assert.True(count > reader.WaveFormat.SampleRate, "m4a decoded to almost no audio");
+            return count == 0 ? 0 : sum / (double)count;
+        }
+        finally
+        {
+            try
+            {
+                File.Delete(path);
+            }
+            catch (IOException)
+            {
+            }
+        }
     }
 
     /// <summary>File size over the mdhd duration. Container overhead is small once the clip is a few seconds long.</summary>
@@ -123,6 +198,19 @@ public sealed class WeatherMediaTests
         Assert.True(timescale > 0 && duration > 0, "m4a duration is empty");
         var seconds = duration / (double)timescale;
         return (int)(m4a.Length * 8 / seconds / 1000);
+    }
+
+    private static void AssertAlignedMp4(byte[] file)
+    {
+        var index = 0;
+        while (index + 8 <= file.Length)
+        {
+            var size = (int)ReadU32(file, index);
+            Assert.True(size >= 8 && size % 4 == 0 && index + size <= file.Length, $"box at {index} is unaligned");
+            index += size;
+        }
+
+        Assert.Equal(file.Length, index);
     }
 
     private static int IndexOf(byte[] data, byte[] needle)

@@ -1,92 +1,35 @@
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
-using System.Runtime.InteropServices;
 
 namespace ShortP2P.Bot.Sample.Meteo.Media;
 
-/// <summary>Draws a weather scene and pads it so the PNG is about 100–150 KB (several blob chunks).</summary>
+/// <summary>Draws a plain weather PNG that image viewers can open. The scene is not padded.</summary>
 internal static class WeatherPicture
 {
-    public const int MinBytes = 100 * 1024;
-    public const int MaxBytes = 150 * 1024;
+    public const int SceneWidth = 800;
+    public const int SceneHeight = 480;
 
-    private const int Width = 800;
-    private const int SceneHeight = 480;
+    private const int Width = SceneWidth;
 
     public static byte[] Render(string conditionKey)
     {
         var key = string.IsNullOrWhiteSpace(conditionKey) ? "dry" : conditionKey.Trim();
-        var plain = Compose(key, 0);
-        var probeRows = 40;
-        var probe = Compose(key, probeRows);
-        var perRow = Math.Max(256, (probe.Length - plain.Length) / probeRows);
-        var target = (MinBytes + MaxBytes) / 2;
-        var rows = (int)Math.Ceiling(Math.Max(0, target - plain.Length) / (double)perRow);
-        rows = Math.Clamp(rows, 1, 400);
-
-        var png = Compose(key, rows);
-        for (var attempt = 0; attempt < 6 && png.Length is < MinBytes or > MaxBytes; attempt++)
-        {
-            if (png.Length < MinBytes)
-                rows += Math.Max(1, (MinBytes - png.Length) / perRow);
-            else
-                rows -= Math.Max(1, (png.Length - MaxBytes) / perRow);
-            rows = Math.Clamp(rows, 1, 400);
-            png = Compose(key, rows);
-        }
-
-        if (png.Length is < MinBytes or > MaxBytes)
-            throw new InvalidOperationException($"Weather PNG is {png.Length} bytes; expected {MinBytes}..{MaxBytes}.");
-
-        return png;
+        return Compose(key);
     }
 
-    private static byte[] Compose(string key, int noiseRows)
+    private static byte[] Compose(string key)
     {
-        using var bitmap = new Bitmap(Width, SceneHeight + noiseRows, PixelFormat.Format32bppArgb);
+        using var bitmap = new Bitmap(Width, SceneHeight, PixelFormat.Format32bppArgb);
         using (var graphics = Graphics.FromImage(bitmap))
         {
             graphics.SmoothingMode = SmoothingMode.AntiAlias;
             Draw(graphics, key, Width, SceneHeight);
         }
 
-        if (noiseRows > 0)
-            FillNoise(bitmap, SceneHeight, noiseRows, new Random(Seed(key)));
-
         using var stream = new MemoryStream();
         bitmap.Save(stream, ImageFormat.Png);
         return stream.ToArray();
-    }
-
-    private static int Seed(string conditionKey)
-    {
-        var hash = 17;
-        foreach (var ch in conditionKey)
-            hash = unchecked(hash * 31 + ch);
-        return hash;
-    }
-
-    private static void FillNoise(Bitmap bitmap, int top, int rows, Random random)
-    {
-        var rect = new Rectangle(0, top, bitmap.Width, rows);
-        var data = bitmap.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
-        try
-        {
-            var stride = data.Stride;
-            if (stride <= 0)
-                throw new InvalidOperationException("Unexpected bitmap stride.");
-
-            var bytes = new byte[stride * rows];
-            random.NextBytes(bytes);
-            for (var i = 3; i < bytes.Length; i += 4)
-                bytes[i] = 255;
-            Marshal.Copy(bytes, 0, data.Scan0, bytes.Length);
-        }
-        finally
-        {
-            bitmap.UnlockBits(data);
-        }
     }
 
     private static void Draw(Graphics g, string key, int w, int h)

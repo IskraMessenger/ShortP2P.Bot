@@ -52,18 +52,38 @@ public sealed class MeteoBehaviorTests
     }
 
     [Theory]
-    [InlineData("ru", "Здравствуйте", "Всего Вам доброго!")]
-    [InlineData("en", "Hello", "All the best!")]
-    [InlineData("es", "Hola", "¡Que le vaya bien!")]
-    [InlineData("de", "Guten Tag", "Alles Gute!")]
-    [InlineData("fr", "Bonjour", "Tous mes vœux !")]
-    [InlineData("cn", "您好", "祝您一切顺利！")]
-    public void VoiceScript_WrapsTheReport(string language, string greeting, string farewell)
+    [InlineData("ru", "Здравствуйте! Температура сегодня: 8,2 облачно. Влажность: 70. Всего доброго!")]
+    [InlineData("en", "Hello! Temperature today: 8.2 cloudy. Humidity: 70. All the best!")]
+    [InlineData("es", "¡Hola! Temperatura de hoy: 8,2 nublado. Humedad: 70. ¡Que le vaya bien!")]
+    [InlineData("de", "Guten Tag! Temperatur heute: 8,2 bewölkt. Luftfeuchtigkeit: 70. Alles Gute!")]
+    [InlineData("fr", "Bonjour ! Température aujourd'hui : 8,2 nuageux. Humidité : 70. Tous mes vœux !")]
+    [InlineData("cn", "您好！今天的温度：8.2 多云。湿度：70。祝您一切顺利！")]
+    public void VoiceScript_SpeaksWeatherInSelectedLanguage(string language, string expected)
     {
-        var script = MeteoTexts.VoiceScript(language, "Moscow\nTemperature: 1 °C");
-        Assert.StartsWith(greeting + ". ", script);
-        Assert.Contains("Moscow Temperature: 1 °C", script);
-        Assert.EndsWith(farewell, script);
+        Assert.Equal(expected, MeteoTexts.VoiceScript(language, 8.2, 70, 3));
+    }
+
+    [Theory]
+    [InlineData("ru", 61, "дождь")]
+    [InlineData("ru", 51, "дождь")]
+    [InlineData("ru", 95, "дождь")]
+    [InlineData("ru", 71, "снег")]
+    [InlineData("ru", 75, "метель")]
+    [InlineData("ru", 86, "метель")]
+    [InlineData("ru", 66, "снег")]
+    [InlineData("ru", 0, "ясно")]
+    [InlineData("ru", 3, "облачно")]
+    [InlineData("ru", 45, "облачно")]
+    [InlineData("ru", 999, "ясно")]
+    [InlineData("en", 75, "blizzard")]
+    [InlineData("es", 61, "lluvia")]
+    [InlineData("de", 71, "Schnee")]
+    [InlineData("fr", 0, "dégagé")]
+    [InlineData("cn", 3, "多云")]
+    [InlineData("cn", 75, "暴风雪")]
+    public void SpokenCondition_UsesNearestWeatherWord(string language, int weatherCode, string expected)
+    {
+        Assert.Equal(expected, MeteoTexts.SpokenCondition(language, weatherCode));
     }
 
     [Fact]
@@ -99,21 +119,23 @@ public sealed class MeteoBehaviorTests
                 FetchedAtUtc = now.AddMinutes(-10)
             };
 
-            cache.SavePlace("moscow", report);
-            cache.SaveCoordinates(report);
+            cache.SavePlace("OpenMeteo", "moscow", report);
+            cache.SaveCoordinates("OpenMeteo", report);
 
-            var place = cache.TryGetPlace("moscow", now);
+            var place = cache.TryGetPlace("OpenMeteo", "moscow", now);
             Assert.NotNull(place);
             Assert.Equal(61, place.WeatherCode);
+            Assert.Null(cache.TryGetPlace("BrightSky", "moscow", now));
 
-            var near = cache.TryGetCoordinates(55.7558 + 9.0 / 111.32, 37.6173, now);
+            var near = cache.TryGetCoordinates("OpenMeteo", 55.7558 + 9.0 / 111.32, 37.6173, now);
             Assert.NotNull(near);
+            Assert.Null(cache.TryGetCoordinates("BrightSky", 55.7558, 37.6173, now));
 
-            var far = cache.TryGetCoordinates(55.7558 + 20.0 / 111.32, 37.6173, now);
+            var far = cache.TryGetCoordinates("OpenMeteo", 55.7558 + 20.0 / 111.32, 37.6173, now);
             Assert.Null(far);
 
-            Assert.Null(cache.TryGetPlace("moscow", now.AddMinutes(31)));
-            Assert.Null(cache.TryGetCoordinates(55.7558, 37.6173, now.AddMinutes(31)));
+            Assert.Null(cache.TryGetPlace("OpenMeteo", "moscow", now.AddMinutes(31)));
+            Assert.Null(cache.TryGetCoordinates("OpenMeteo", 55.7558, 37.6173, now.AddMinutes(31)));
         }
         finally
         {

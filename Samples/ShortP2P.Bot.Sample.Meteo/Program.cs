@@ -28,6 +28,13 @@ builder.Services.AddSingleton<IBotCertificateStore, SqliteBotCertificateStore>()
 builder.Services.AddSingleton<SqliteMessageKeyStore>();
 builder.Services.AddSingleton<SqliteChatStore>();
 builder.Services.AddSingleton<SqliteWeatherCache>();
+builder.Services.Configure<WeatherOptions>(builder.Configuration.GetSection(WeatherOptions.SectionName));
+var weatherProvider = WeatherProviders.Parse(builder.Configuration["Weather:Provider"]);
+if (weatherProvider == WeatherProviderKind.BrightSky)
+    WeatherOptions.BrightSkyAddress(builder.Configuration["Weather:BrightSkyBaseUrl"]);
+if (weatherProvider != WeatherProviderKind.OpenMeteo)
+    WeatherOptions.OpenStreetMapAddress(builder.Configuration["Weather:OpenStreetMapBaseUrl"]);
+
 builder.Services.AddHttpClient<OpenMeteoClient>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(60);
@@ -35,6 +42,28 @@ builder.Services.AddHttpClient<OpenMeteoClient>(client =>
         "User-Agent",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
 });
+builder.Services.AddHttpClient<BrightSkyClient>(client =>
+{
+    client.BaseAddress = WeatherOptions.BrightSkyAddress(builder.Configuration["Weather:BrightSkyBaseUrl"]);
+    client.Timeout = TimeSpan.FromSeconds(60);
+    client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "ShortP2P.Bot.Sample.Meteo");
+    client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+});
+builder.Services.AddHttpClient<OpenStreetMapGeocoder>(client =>
+{
+    client.BaseAddress = WeatherOptions.OpenStreetMapAddress(builder.Configuration["Weather:OpenStreetMapBaseUrl"]);
+    client.Timeout = TimeSpan.FromSeconds(60);
+    client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "ShortP2P.Bot.Sample.Meteo");
+    client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
+});
+builder.Services.AddSingleton<ICurrentWeatherSource>(sp =>
+    weatherProvider == WeatherProviderKind.BrightSky
+        ? sp.GetRequiredService<BrightSkyClient>()
+        : sp.GetRequiredService<OpenMeteoClient>());
+builder.Services.AddSingleton<IPlaceGeocoder>(sp =>
+    weatherProvider == WeatherProviderKind.OpenMeteo
+        ? sp.GetRequiredService<OpenMeteoClient>()
+        : sp.GetRequiredService<OpenStreetMapGeocoder>());
 builder.Services.AddSingleton<WeatherService>();
 builder.Services.AddSingleton<MeteoCommandHandler>();
 builder.Services.AddSingleton<WeatherAttachmentSender>();

@@ -210,12 +210,12 @@ internal static class MeteoTexts
 
     public static string VoiceGreeting(string language) => language switch
     {
-        "en" => "Hello",
-        "es" => "Hola",
-        "de" => "Guten Tag",
-        "fr" => "Bonjour",
-        "cn" => "您好",
-        _ => "Здравствуйте"
+        "en" => "Hello!",
+        "es" => "¡Hola!",
+        "de" => "Guten Tag!",
+        "fr" => "Bonjour !",
+        "cn" => "您好！",
+        _ => "Здравствуйте!"
     };
 
     public static string VoiceFarewell(string language) => language switch
@@ -225,15 +225,98 @@ internal static class MeteoTexts
         "de" => "Alles Gute!",
         "fr" => "Tous mes vœux !",
         "cn" => "祝您一切顺利！",
-        _ => "Всего Вам доброго!"
+        _ => "Всего доброго!"
     };
 
-    /// <summary>Greeting, then the weather text, then the farewell. Newlines are read as pauses.</summary>
-    public static string VoiceScript(string language, string report)
+    /// <summary>
+    /// One of five spoken conditions, in the selected language.
+    /// Other forecast keys use the nearest of these: drizzle and thunderstorm follow rain,
+    /// fog follows cloudy, sleet follows snow, dry follows clear, heavy snow is a blizzard.
+    /// </summary>
+    public static string SpokenCondition(string language, int weatherCode)
     {
-        var body = string.Join(' ', (report ?? "").Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)).Trim();
-        return VoiceGreeting(language) + ". " + body + ". " + VoiceFarewell(language);
+        var spoken = SpokenKey(weatherCode);
+        return (language, spoken) switch
+        {
+            ("en", "rain") => "rain",
+            ("en", "snow") => "snow",
+            ("en", "blizzard") => "blizzard",
+            ("en", "clear") => "clear",
+            ("en", "cloudy") => "cloudy",
+            ("es", "rain") => "lluvia",
+            ("es", "snow") => "nieve",
+            ("es", "blizzard") => "ventisca",
+            ("es", "clear") => "despejado",
+            ("es", "cloudy") => "nublado",
+            ("de", "rain") => "Regen",
+            ("de", "snow") => "Schnee",
+            ("de", "blizzard") => "Schneesturm",
+            ("de", "clear") => "klar",
+            ("de", "cloudy") => "bewölkt",
+            ("fr", "rain") => "pluie",
+            ("fr", "snow") => "neige",
+            ("fr", "blizzard") => "blizzard",
+            ("fr", "clear") => "dégagé",
+            ("fr", "cloudy") => "nuageux",
+            ("cn", "rain") => "雨",
+            ("cn", "snow") => "雪",
+            ("cn", "blizzard") => "暴风雪",
+            ("cn", "clear") => "晴",
+            ("cn", "cloudy") => "多云",
+            (_, "rain") => "дождь",
+            (_, "snow") => "снег",
+            (_, "blizzard") => "метель",
+            (_, "clear") => "ясно",
+            (_, "cloudy") => "облачно",
+            _ => "ясно"
+        };
     }
+
+    /// <summary>Greeting, then today's temperature, condition, humidity, and farewell. Spoken in <paramref name="language"/>.</summary>
+    public static string VoiceScript(string language, double temperatureC, int humidityPercent, int weatherCode)
+    {
+        var culture = VoiceCulture(language);
+        var temperature = temperatureC.ToString("0.0", culture);
+        var humidity = humidityPercent.ToString(culture);
+        var condition = SpokenCondition(language, weatherCode);
+        var greeting = VoiceGreeting(language);
+        var farewell = VoiceFarewell(language);
+        return language switch
+        {
+            "en" => $"{greeting} Temperature today: {temperature} {condition}. Humidity: {humidity}. {farewell}",
+            "es" => $"{greeting} Temperatura de hoy: {temperature} {condition}. Humedad: {humidity}. {farewell}",
+            "de" => $"{greeting} Temperatur heute: {temperature} {condition}. Luftfeuchtigkeit: {humidity}. {farewell}",
+            "fr" => $"{greeting} Température aujourd'hui : {temperature} {condition}. Humidité : {humidity}. {farewell}",
+            "cn" => $"{greeting}今天的温度：{temperature} {condition}。湿度：{humidity}。{farewell}",
+            _ => $"{greeting} Температура сегодня: {temperature} {condition}. Влажность: {humidity}. {farewell}"
+        };
+    }
+
+    /// <summary>Heavy snow is spoken as a blizzard. Every other code follows <see cref="ConditionKey"/>.</summary>
+    public static string SpokenKey(int weatherCode)
+    {
+        if (weatherCode is 75 or 86)
+            return "blizzard";
+
+        return ConditionKey(weatherCode) switch
+        {
+            "sun" or "dry" => "clear",
+            "cloudy" or "fog" => "cloudy",
+            "rain" or "drizzle" or "thunderstorm" => "rain",
+            "snow" or "sleet" => "snow",
+            _ => "clear"
+        };
+    }
+
+    private static CultureInfo VoiceCulture(string language) => language switch
+    {
+        "en" => CultureInfo.GetCultureInfo("en-US"),
+        "es" => CultureInfo.GetCultureInfo("es-ES"),
+        "de" => CultureInfo.GetCultureInfo("de-DE"),
+        "fr" => CultureInfo.GetCultureInfo("fr-FR"),
+        "cn" => CultureInfo.GetCultureInfo("zh-CN"),
+        _ => CultureInfo.GetCultureInfo("ru-RU")
+    };
 
     private static string Greeting(string language) => language switch
     {

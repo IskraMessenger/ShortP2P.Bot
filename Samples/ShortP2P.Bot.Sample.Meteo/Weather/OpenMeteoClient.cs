@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 
 namespace ShortP2P.Bot.Sample.Meteo.Weather;
 
-internal sealed class OpenMeteoClient
+internal sealed class OpenMeteoClient : ICurrentWeatherSource, IPlaceGeocoder
 {
     private readonly HttpClient _http;
 

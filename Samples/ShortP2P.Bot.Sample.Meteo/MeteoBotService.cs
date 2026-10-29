@@ -259,7 +259,12 @@ internal sealed class MeteoBotService : BackgroundService
 
         try
         {
-            var script = MeteoTexts.VoiceScript(reply.Language, reply.Text);
+            var report = reply.Report!;
+            var script = MeteoTexts.VoiceScript(
+                reply.Language,
+                report.TemperatureC,
+                report.HumidityPercent,
+                report.WeatherCode);
             voice = await WeatherVoice.SynthesizeAsync(reply.Language, script, cancellationToken).ConfigureAwait(false);
             _logger.LogInformation("Weather voice is {Bytes} bytes", voice.Length);
         }
@@ -270,6 +275,15 @@ internal sealed class MeteoBotService : BackgroundService
 
         if (png is null && voice is null)
             return Array.Empty<BotClientMessageDto>();
+
+        try
+        {
+            WeatherMediaArchive.Save(condition, reply.Language, png, voice, _logger);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Failed to save weather media under {Folder}", WeatherMediaArchive.RootDirectory);
+        }
 
         try
         {
