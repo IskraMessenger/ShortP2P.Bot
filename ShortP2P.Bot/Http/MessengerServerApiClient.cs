@@ -5,7 +5,7 @@ using ShortP2P.Bot.Contracts.Dtos;
 
 namespace ShortP2P.Bot.Http;
 
-public sealed class MessengerServerApiClient : IMessengerServerApiClient
+public sealed class MessengerServerApiClient(IHttpClientFactory httpClientFactory) : IMessengerServerApiClient
 {
     /// <summary>Default timeout for regular HTTPS calls (ping, register, login, send).</summary>
     public static readonly TimeSpan HttpTimeout = TimeSpan.FromSeconds(20);
@@ -19,12 +19,8 @@ public sealed class MessengerServerApiClient : IMessengerServerApiClient
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
-    private readonly IHttpClientFactory _httpClientFactory;
-
-    public MessengerServerApiClient(IHttpClientFactory httpClientFactory)
-    {
-        _httpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
-    }
+    private readonly IHttpClientFactory _httpClientFactory =
+        httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
 
     public async Task PingAsync(Uri serverBaseUrl, CancellationToken cancellationToken = default)
     {

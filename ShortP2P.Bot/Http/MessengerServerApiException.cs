@@ -2,18 +2,14 @@ using System.Net;
 
 namespace ShortP2P.Bot.Http;
 
-public sealed class MessengerServerApiException : Exception
+public sealed class MessengerServerApiException(
+    string message,
+    HttpStatusCode? statusCode = null,
+    string? responseBody = null) : Exception(message)
 {
-    public MessengerServerApiException(string message, HttpStatusCode? statusCode = null, string? responseBody = null)
-        : base(message)
-    {
-        StatusCode = statusCode;
-        ResponseBody = responseBody;
-    }
+    private HttpStatusCode? StatusCode { get; } = statusCode;
 
-    private HttpStatusCode? StatusCode { get; }
-
-    public string? ResponseBody { get; }
+    public string? ResponseBody { get; } = responseBody;
 
     /// <summary>True when the failure indicates the host is likely unreachable / unhealthy.</summary>
     public bool IndicatesServerUnavailable =>
