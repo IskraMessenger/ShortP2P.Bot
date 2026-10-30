@@ -1,8 +1,13 @@
 namespace ShortP2P.Bot.Contracts;
 
-/// <summary>HTTPS routes of ShortP2P.MessengerServer.Api (v1), mirrored for netstandard2.1.</summary>
+/// <summary>
+/// HTTPS routes of ShortP2P.MessengerServer.Api, mirrored for netstandard2.1.
+/// Current server API version is <c>1</c> (<see cref="Prefix"/> = <c>/api/v1</c>),
+/// matching <c>ShortP2P.MessengerServer.Contracts.ApiRoutes</c>.
+/// </summary>
 public static class ServerApiRoutes
 {
+    /// <summary>Versioned base path for the current messenger server HTTP API (<c>/api/v1</c>).</summary>
     public const string Prefix = "/api/v1";
 
     public const string HealthPing = Prefix + "/health/ping";
