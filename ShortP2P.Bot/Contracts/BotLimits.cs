@@ -17,4 +17,19 @@ public static class BotLimits
 
     /// <summary>Max length of optional end-to-end <c>correlationId</c> on client ↔ bot messages.</summary>
     public const int MaxCorrelationIdLength = 32;
+
+    /// <summary>Max commands in one bot command list.</summary>
+    public const int MaxCommands = 32;
+
+    /// <summary>Max length of a command name, including the leading slash.</summary>
+    public const int MaxCommandLength = 32;
+
+    /// <summary>Max positional arguments on one command. Null or empty means the command takes none.</summary>
+    public const int MaxCommandArguments = 16;
+
+    /// <summary>Max length of an internal argument name.</summary>
+    public const int MaxCommandArgumentNameLength = 64;
+
+    /// <summary>Max length of a command description.</summary>
+    public const int MaxCommandDescriptionLength = 256;
 }

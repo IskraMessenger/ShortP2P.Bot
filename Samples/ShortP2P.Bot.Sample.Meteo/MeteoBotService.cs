@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using ShortP2P.Bot.Commands;
 using ShortP2P.Bot.Contracts.Dtos;
 using ShortP2P.Bot.Dal;
 using ShortP2P.Bot.Messaging;
@@ -19,6 +20,7 @@ internal sealed class MeteoBotService : BackgroundService
     private readonly IBotCertificateStore _certificates;
     private readonly SqliteMessageKeyStore _messageKeys;
     private readonly MeteoCommandHandler _commands;
+    private readonly GetBotCommands _botCommands;
     private readonly WeatherAttachmentSender _attachments;
     private readonly SampleBotOptions _options;
     private readonly VoiceOptions _voice;
@@ -31,6 +33,7 @@ internal sealed class MeteoBotService : BackgroundService
         IBotCertificateStore certificates,
         SqliteMessageKeyStore messageKeys,
         MeteoCommandHandler commands,
+        GetBotCommands botCommands,
         WeatherAttachmentSender attachments,
         IOptions<SampleBotOptions> options,
         IOptions<VoiceOptions> voice,
@@ -41,6 +44,7 @@ internal sealed class MeteoBotService : BackgroundService
         _certificates = certificates ?? throw new ArgumentNullException(nameof(certificates));
         _messageKeys = messageKeys ?? throw new ArgumentNullException(nameof(messageKeys));
         _commands = commands ?? throw new ArgumentNullException(nameof(commands));
+        _botCommands = botCommands ?? throw new ArgumentNullException(nameof(botCommands));
         _attachments = attachments ?? throw new ArgumentNullException(nameof(attachments));
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
         _voice = voice?.Value ?? throw new ArgumentNullException(nameof(voice));
@@ -57,6 +61,11 @@ internal sealed class MeteoBotService : BackgroundService
         {
             var serverUri = RequireServerUri();
             RequireBotIdentity();
+            var listed = _botCommands.Execute(new GetBotCommandsQuery(_options.Bot.NetworkId.Trim()));
+            _logger.LogInformation(
+                "Loaded {CommandCount} commands for {BotNetworkId}",
+                listed.Commands.Count,
+                listed.BotNetworkId);
             var certificate = _certificates.GetOrCreate(_options.Bot.Name);
             var keys = EnsureMessageKeys();
             _privateKeyJson = keys.PrivateJson;
@@ -197,9 +206,22 @@ internal sealed class MeteoBotService : BackgroundService
                 text = MessageText.Decode(message.EncryptedMessageBase64);
             }
 
-            _logger.LogInformation("Received message from {ClientNetworkId}: {Text}", message.NetworkId, text);
-
-            var reply = await _commands.HandleAsync(message.NetworkId, text, stoppingToken).ConfigureAwait(false);
+            var inspection = _botCommands.Inspect(text);
+            CommandResult reply;
+            if (inspection.IsCommand && !inspection.IsAccepted)
+            {
+                reply = CommandResult.TextOnly(inspection.RejectionMessage ?? BotCommandRejection.Code, "en");
+                _logger.LogWarning(
+                    "Rejected command from {ClientNetworkId} with {RejectionCode}: {Text}",
+                    message.NetworkId,
+                    inspection.RejectionCode,
+                    text);
+            }
+            else
+            {
+                _logger.LogInformation("Received message from {ClientNetworkId}: {Text}", message.NetworkId, text);
+                reply = await _commands.HandleAsync(message.NetworkId, text, stoppingToken).ConfigureAwait(false);
+            }
             var clientPub = message.ClientMessagePublicKey?.Trim() ?? "";
             if (clientPub.Length == 0)
             {

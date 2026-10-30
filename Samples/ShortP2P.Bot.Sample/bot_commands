@@ -1,0 +1,9 @@
+[
+  {
+    "command": "/echo",
+    "args": [
+      { "argName": "text", "argType": "string" }
+    ],
+    "description": "Echoes the text you send"
+  }
+]

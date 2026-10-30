@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Polly;
 using Polly.Retry;
+using ShortP2P.Bot.Commands;
 using ShortP2P.Bot.Contracts.Dtos;
 using ShortP2P.Bot.Dal;
 using ShortP2P.Bot.Dal.Entities;
@@ -27,6 +28,7 @@ public sealed class BotMessenger : IBotMessenger
     private readonly IBotCertificateProvider _certificate;
     private readonly ILogger<BotMessenger> _logger;
     private readonly BotHostOptions _host;
+    private readonly BotCommandCatalog _commands;
     private readonly AsyncRetryPolicy _poolRetryPolicy;
 
     public BotMessenger(
@@ -34,13 +36,15 @@ public sealed class BotMessenger : IBotMessenger
         IMessengerServerRepository servers,
         IBotCertificateProvider certificate,
         ILogger<BotMessenger> logger,
-        IOptions<BotHostOptions> hostOptions)
+        IOptions<BotHostOptions> hostOptions,
+        BotCommandCatalog commands)
     {
         _apiClient = apiClient ?? throw new ArgumentNullException(nameof(apiClient));
         _servers = servers ?? throw new ArgumentNullException(nameof(servers));
         _certificate = certificate ?? throw new ArgumentNullException(nameof(certificate));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _host = hostOptions?.Value ?? new BotHostOptions();
+        _commands = commands ?? throw new ArgumentNullException(nameof(commands));
 
         _poolRetryPolicy = Policy
             .Handle<Exception>(ex => ex is not OperationCanceledException)
@@ -79,6 +83,7 @@ public sealed class BotMessenger : IBotMessenger
 
         request.FingerprintSha256 = _certificate.FingerprintSha256;
         request.Version = ReportedVersion(request.Version);
+        request.Commands = _commands.Commands.ToList();
 
         var response = await _apiClient.RegisterAsync(serverBaseUrl, request, cancellationToken)
             .ConfigureAwait(false);
@@ -147,7 +152,8 @@ public sealed class BotMessenger : IBotMessenger
                 BotName = server.BotName,
                 BotKey = server.BotKey,
                 FingerprintSha256 = _certificate.FingerprintSha256,
-                Version = ReportedVersion(0)
+                Version = ReportedVersion(0),
+                Commands = _commands.Commands.ToList()
             },
             cancellationToken).ConfigureAwait(false);
 

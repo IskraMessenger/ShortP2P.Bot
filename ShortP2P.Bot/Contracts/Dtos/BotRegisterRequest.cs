@@ -33,4 +33,10 @@ public sealed class BotRegisterRequest
     /// When zero, <c>BotMessenger</c> fills the host version before the request is sent.
     /// </summary>
     public int Version { get; set; }
+
+    /// <summary>
+    /// Commands from <c>bot_commands</c>. <c>BotMessenger</c> fills this from the file before the request is sent.
+    /// <see cref="BotCommandDto.Args"/> is null or empty when a command takes no arguments.
+    /// </summary>
+    public List<BotCommandDto> Commands { get; set; } = new();
 }

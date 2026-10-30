@@ -27,4 +27,9 @@ public sealed class BotLoginRequest
     /// Replaces the version stored at registration.
     /// </summary>
     public int Version { get; set; }
+
+    /// <summary>
+    /// Commands from <c>bot_commands</c>. <c>BotMessenger</c> fills this from the file before the request is sent.
+    /// </summary>
+    public List<BotCommandDto> Commands { get; set; } = new();
 }
