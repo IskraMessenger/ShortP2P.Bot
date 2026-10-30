@@ -52,15 +52,15 @@ public sealed class MeteoBehaviorTests
     }
 
     [Theory]
-    [InlineData("ru", "Здравствуйте! Температура сегодня: восемь запятая два облачно. Влажность: семьдесят. Всего Вам доброго!")]
-    [InlineData("en", "Hello! Temperature today: eight point two cloudy. Humidity: seventy. All the best to you!")]
-    [InlineData("es", "¡Hola! Temperatura de hoy: ocho coma dos nublado. Humedad: setenta. ¡Que le vaya bien!")]
-    [InlineData("de", "Guten Tag! Temperatur heute: acht Komma zwei bewölkt. Luftfeuchtigkeit: siebzig. Alles Gute für Sie!")]
-    [InlineData("fr", "Bonjour ! Température aujourd'hui : huit virgule deux nuageux. Humidité : soixante-dix. Je vous souhaite tout le meilleur !")]
-    [InlineData("cn", "您好！今天的温度：八点二 多云。湿度：七十。祝您一切顺利！")]
-    public void VoiceScript_SpeaksWeatherInSelectedLanguage(string language, string expected)
+    [InlineData("ru", "Москва", "Здравствуйте! Погода в Москва. Температура сегодня: восемь запятая два облачно. Влажность: семьдесят. Всего Вам доброго!")]
+    [InlineData("en", "Moscow", "Hello! Weather in Moscow. Temperature today: eight point two cloudy. Humidity: seventy. All the best to you!")]
+    [InlineData("es", "Moscú", "¡Hola! Tiempo en Moscú. Temperatura de hoy: ocho coma dos nublado. Humedad: setenta. ¡Que le vaya bien!")]
+    [InlineData("de", "Moskau", "Guten Tag! Wetter in Moskau. Temperatur heute: acht Komma zwei bewölkt. Luftfeuchtigkeit: siebzig. Alles Gute für Sie!")]
+    [InlineData("fr", "Moscou", "Bonjour ! Météo à Moscou. Température aujourd'hui : huit virgule deux nuageux. Humidité : soixante-dix. Je vous souhaite tout le meilleur !")]
+    [InlineData("cn", "Moscow", "您好！Moscow的天气。今天的温度：八点二 多云。湿度：七十。祝您一切顺利！")]
+    public void VoiceScript_SpeaksWeatherInSelectedLanguage(string language, string placeName, string expected)
     {
-        var script = MeteoTexts.VoiceScript(language, 8.2, 70, 3);
+        var script = MeteoTexts.VoiceScript(language, placeName, 8.2, 70, 3);
         Assert.Equal(expected, script);
         Assert.StartsWith(MeteoTexts.VoiceGreeting(language), script);
         Assert.EndsWith(MeteoTexts.VoiceFarewell(language), script);
@@ -93,23 +93,23 @@ public sealed class MeteoBehaviorTests
     [Fact]
     public void Pronounceable_KeepsOneLanguageForTheInstalledVoice()
     {
-        var russian = MeteoTexts.VoiceScript("ru", 8.2, 70, 3);
+        var russian = MeteoTexts.VoiceScript("ru", "Москва", 8.2, 70, 3);
         var spokenRussian = MeteoTexts.Pronounceable("ru", russian);
         Assert.Equal(
-            "Zdravstvuyte! Temperatura segodnya: vosem zapyataya dva oblachno. Vlazhnost: semdesyat. Vsego Vam dobrogo!",
+            "Zdravstvuyte! Pogoda v Moskva. Temperatura segodnya: vosem zapyataya dva oblachno. Vlazhnost: semdesyat. Vsego Vam dobrogo!",
             spokenRussian);
         Assert.DoesNotContain(spokenRussian, letter => letter is >= '\u0400' and <= '\u04FF');
 
-        var chinese = MeteoTexts.VoiceScript("cn", 8.2, 70, 3);
+        var chinese = MeteoTexts.VoiceScript("cn", "Moscow", 8.2, 70, 3);
         var spokenChinese = MeteoTexts.Pronounceable("cn", chinese);
         Assert.Equal(
-            "nin hao! jin tian de wen du: ba dian er duo yun. shi du: qi shi. zhu nin yi qie shun li!",
+            "nin hao!Moscow de tian qi. jin tian de wen du: ba dian er duo yun. shi du: qi shi. zhu nin yi qie shun li!",
             spokenChinese);
         Assert.DoesNotContain(spokenChinese, letter => letter is >= '\u4E00' and <= '\u9FFF');
 
-        var english = MeteoTexts.VoiceScript("en", -3.5, 0, 0);
+        var english = MeteoTexts.VoiceScript("en", "Moscow", -3.5, 0, 0);
         Assert.Equal(
-            "Hello! Temperature today: minus three point five clear. Humidity: zero. All the best to you!",
+            "Hello! Weather in Moscow. Temperature today: minus three point five clear. Humidity: zero. All the best to you!",
             english);
         Assert.Equal(english, MeteoTexts.Pronounceable("en", english));
     }

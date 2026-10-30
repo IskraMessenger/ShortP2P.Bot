@@ -25,6 +25,47 @@ public sealed class BrightSkyTests
     }
 
     [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void ProxyUrl_EmptyMeansOff(string? configured)
+    {
+        Assert.Null(WeatherOptions.ProxyAddress(configured));
+    }
+
+    [Fact]
+    public void ProxyUrl_AcceptsAbsoluteHttp()
+    {
+        var uri = WeatherOptions.ProxyAddress("http://127.0.0.1:10809");
+        Assert.Equal(new Uri("http://127.0.0.1:10809"), uri);
+    }
+
+    [Fact]
+    public void ProxyUrl_RejectsNonAbsoluteOrNonHttp()
+    {
+        var relative = Assert.Throws<InvalidOperationException>(() => WeatherOptions.ProxyAddress("127.0.0.1:10809"));
+        Assert.Contains("Weather:ProxyUrl", relative.Message);
+
+        var ftp = Assert.Throws<InvalidOperationException>(() => WeatherOptions.ProxyAddress("ftp://127.0.0.1:10809"));
+        Assert.Contains("Weather:ProxyUrl", ftp.Message);
+    }
+
+    [Fact]
+    public void CreateHandler_DisablesProxyWhenEmpty()
+    {
+        using var handler = Assert.IsType<HttpClientHandler>(WeatherOptions.CreateHandler(null));
+        Assert.False(handler.UseProxy);
+    }
+
+    [Fact]
+    public void CreateHandler_UsesConfiguredProxy()
+    {
+        using var handler = Assert.IsType<HttpClientHandler>(WeatherOptions.CreateHandler("http://127.0.0.1:10809"));
+        Assert.True(handler.UseProxy);
+        Assert.Equal(new Uri("http://127.0.0.1:10809"), handler.Proxy?.GetProxy(new Uri("https://api.open-meteo.com/")));
+    }
+
+    [Theory]
     [InlineData("dry", "clear-day", null, 0)]
     [InlineData("dry", "partly-cloudy-night", null, 2)]
     [InlineData("dry", "cloudy", 100d, 3)]

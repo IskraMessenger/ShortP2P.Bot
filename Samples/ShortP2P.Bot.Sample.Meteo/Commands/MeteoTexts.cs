@@ -274,24 +274,31 @@ internal static class MeteoTexts
     }
 
     /// <summary>
-    /// Greeting, then today's temperature, condition and humidity, then farewell.
+    /// Greeting, place, then today's temperature, condition and humidity, then farewell.
     /// Every word, including the numbers, is in <paramref name="language"/>.
+    /// <paramref name="placeName"/> is the display name already resolved for that language.
     /// </summary>
-    public static string VoiceScript(string language, double temperatureC, int humidityPercent, int weatherCode)
+    public static string VoiceScript(
+        string language,
+        string placeName,
+        double temperatureC,
+        int humidityPercent,
+        int weatherCode)
     {
         var temperature = SpokenNumber.Temperature(language, temperatureC);
         var humidity = SpokenNumber.Cardinal(language, humidityPercent);
         var condition = SpokenCondition(language, weatherCode);
         var greeting = VoiceGreeting(language);
         var farewell = VoiceFarewell(language);
+        var place = placeName.Trim();
         return language switch
         {
-            "en" => $"{greeting} Temperature today: {temperature} {condition}. Humidity: {humidity}. {farewell}",
-            "es" => $"{greeting} Temperatura de hoy: {temperature} {condition}. Humedad: {humidity}. {farewell}",
-            "de" => $"{greeting} Temperatur heute: {temperature} {condition}. Luftfeuchtigkeit: {humidity}. {farewell}",
-            "fr" => $"{greeting} Température aujourd'hui : {temperature} {condition}. Humidité : {humidity}. {farewell}",
-            "cn" => $"{greeting}今天的温度：{temperature} {condition}。湿度：{humidity}。{farewell}",
-            _ => $"{greeting} Температура сегодня: {temperature} {condition}. Влажность: {humidity}. {farewell}"
+            "en" => $"{greeting} Weather in {place}. Temperature today: {temperature} {condition}. Humidity: {humidity}. {farewell}",
+            "es" => $"{greeting} Tiempo en {place}. Temperatura de hoy: {temperature} {condition}. Humedad: {humidity}. {farewell}",
+            "de" => $"{greeting} Wetter in {place}. Temperatur heute: {temperature} {condition}. Luftfeuchtigkeit: {humidity}. {farewell}",
+            "fr" => $"{greeting} Météo à {place}. Température aujourd'hui : {temperature} {condition}. Humidité : {humidity}. {farewell}",
+            "cn" => $"{greeting}{place}的天气。今天的温度：{temperature} {condition}。湿度：{humidity}。{farewell}",
+            _ => $"{greeting} Погода в {place}. Температура сегодня: {temperature} {condition}. Влажность: {humidity}. {farewell}"
         };
     }
 
@@ -383,8 +390,9 @@ internal static class MeteoTexts
     private static readonly Dictionary<char, string> ChineseSyllables = new()
     {
         ['您'] = "nin", ['好'] = "hao", ['今'] = "jin", ['天'] = "tian", ['的'] = "de",
-        ['温'] = "wen", ['度'] = "du", ['湿'] = "shi", ['雨'] = "yu", ['雪'] = "xue",
+        ['气'] = "qi", ['温'] = "wen", ['度'] = "du", ['湿'] = "shi", ['雨'] = "yu", ['雪'] = "xue",
         ['暴'] = "bao", ['风'] = "feng", ['晴'] = "qing", ['多'] = "duo", ['云'] = "yun",
+        ['北'] = "bei", ['京'] = "jing",
         ['祝'] = "zhu", ['一'] = "yi", ['切'] = "qie", ['顺'] = "shun", ['利'] = "li",
         ['零'] = "ling", ['二'] = "er", ['三'] = "san", ['四'] = "si", ['五'] = "wu",
         ['六'] = "liu", ['七'] = "qi", ['八'] = "ba", ['九'] = "jiu", ['十'] = "shi",

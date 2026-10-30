@@ -38,6 +38,8 @@ if (weatherProvider == WeatherProviderKind.BrightSky)
     WeatherOptions.BrightSkyAddress(builder.Configuration["Weather:BrightSkyBaseUrl"]);
 if (weatherProvider != WeatherProviderKind.OpenMeteo)
     WeatherOptions.OpenStreetMapAddress(builder.Configuration["Weather:OpenStreetMapBaseUrl"]);
+var weatherProxyUrl = builder.Configuration["Weather:ProxyUrl"];
+_ = WeatherOptions.ProxyAddress(weatherProxyUrl);
 
 builder.Services.AddHttpClient<OpenMeteoClient>(client =>
 {
@@ -45,21 +47,21 @@ builder.Services.AddHttpClient<OpenMeteoClient>(client =>
     client.DefaultRequestHeaders.TryAddWithoutValidation(
         "User-Agent",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
-});
+}).ConfigurePrimaryHttpMessageHandler(() => WeatherOptions.CreateHandler(weatherProxyUrl));
 builder.Services.AddHttpClient<BrightSkyClient>(client =>
 {
     client.BaseAddress = WeatherOptions.BrightSkyAddress(builder.Configuration["Weather:BrightSkyBaseUrl"]);
     client.Timeout = TimeSpan.FromSeconds(60);
     client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "ShortP2P.Bot.Sample.Meteo");
     client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
-});
+}).ConfigurePrimaryHttpMessageHandler(() => WeatherOptions.CreateHandler(weatherProxyUrl));
 builder.Services.AddHttpClient<OpenStreetMapGeocoder>(client =>
 {
     client.BaseAddress = WeatherOptions.OpenStreetMapAddress(builder.Configuration["Weather:OpenStreetMapBaseUrl"]);
     client.Timeout = TimeSpan.FromSeconds(60);
     client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "ShortP2P.Bot.Sample.Meteo");
     client.DefaultRequestHeaders.Accept.ParseAdd("application/json");
-});
+}).ConfigurePrimaryHttpMessageHandler(() => WeatherOptions.CreateHandler(weatherProxyUrl));
 builder.Services.AddSingleton<ICurrentWeatherSource>(sp =>
     weatherProvider == WeatherProviderKind.BrightSky
         ? sp.GetRequiredService<BrightSkyClient>()

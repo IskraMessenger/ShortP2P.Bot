@@ -268,6 +268,7 @@ internal sealed class MeteoBotService : BackgroundService
             var report = reply.Report!;
             var script = MeteoTexts.VoiceScript(
                 reply.Language,
+                report.DisplayName,
                 report.TemperatureC,
                 report.HumidityPercent,
                 report.WeatherCode);
@@ -276,7 +277,9 @@ internal sealed class MeteoBotService : BackgroundService
                 script,
                 _voice.SelectedFormat,
                 _voice.BitRate,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                _voice.SelectedEngine,
+                _voice.PreferredVoice).ConfigureAwait(false);
             _logger.LogInformation(
                 "Weather voice is {Bytes} bytes ({FileName} at {BitRate} bit/s)",
                 voice.Value.Bytes.Length,

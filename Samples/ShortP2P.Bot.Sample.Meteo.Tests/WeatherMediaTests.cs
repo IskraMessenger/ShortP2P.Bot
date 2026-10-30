@@ -1,4 +1,5 @@
 using System.Drawing;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using Concentus;
@@ -100,12 +101,130 @@ public sealed class WeatherMediaTests
         Assert.Contains("ogg", error.Message, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(null, "Auto")]
+    [InlineData("", "Auto")]
+    [InlineData("Auto", "Auto")]
+    [InlineData("RHVoice", "RHVoice")]
+    [InlineData("SystemSpeech", "SystemSpeech")]
+    [InlineData("System.Speech", "SystemSpeech")]
+    public void VoiceEngine_ParsesKnownNames(string? text, string expected) =>
+        Assert.Equal(expected, VoiceOptions.ParseEngine(text).ToString());
+
+    [Fact]
+    public void VoiceEngine_RejectsUnknownName()
+    {
+        var error = Assert.Throws<InvalidOperationException>(() => VoiceOptions.ParseEngine("Azure"));
+        Assert.Contains("RHVoice", error.Message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void VoiceBitRate_RejectsOutOfRange()
     {
         Assert.Throws<InvalidOperationException>(() => VoiceOptions.RequireBitRate(1_000));
         Assert.Throws<InvalidOperationException>(() => VoiceOptions.RequireBitRate(400_000));
         Assert.Equal(VoiceOptions.DefaultBitRate, VoiceOptions.RequireBitRate(VoiceOptions.DefaultBitRate));
+    }
+
+    [Fact]
+    public void VoiceSelect_PrefersRhVoiceForRussianWhenAuto()
+    {
+        var culture = CultureInfo.GetCultureInfo("ru-RU");
+        var voices = new[]
+        {
+            new WeatherVoice.VoiceCandidate("Microsoft Irina Desktop", "ru-RU", "Microsoft", true),
+            new WeatherVoice.VoiceCandidate("RHVoice Elena", "ru-RU", "RHVoice Russian Elena", true),
+            new WeatherVoice.VoiceCandidate("Microsoft Zira Desktop", "en-US", "Microsoft", true)
+        };
+
+        var selected = WeatherVoice.SelectVoice(voices, culture, VoiceEngine.Auto);
+        Assert.NotNull(selected);
+        Assert.Equal("RHVoice Elena", selected!.Value.Name);
+        Assert.True(WeatherVoice.IsRhVoice(selected.Value));
+    }
+
+    [Fact]
+    public void VoiceSelect_UsesPreferredRhVoiceSubstring()
+    {
+        var culture = CultureInfo.GetCultureInfo("ru-RU");
+        var voices = new[]
+        {
+            new WeatherVoice.VoiceCandidate("RHVoice Elena", "ru-RU", "RHVoice", true),
+            new WeatherVoice.VoiceCandidate("RHVoice Aleksandr", "ru-RU", "RHVoice", true)
+        };
+
+        var selected = WeatherVoice.SelectVoice(voices, culture, VoiceEngine.RHVoice, "Aleksandr");
+        Assert.Equal("RHVoice Aleksandr", selected!.Value.Name);
+    }
+
+    [Fact]
+    public void VoiceSelect_SystemSpeechSkipsRhVoice()
+    {
+        var culture = CultureInfo.GetCultureInfo("ru-RU");
+        var voices = new[]
+        {
+            new WeatherVoice.VoiceCandidate("RHVoice Elena", "ru-RU", "RHVoice", true),
+            new WeatherVoice.VoiceCandidate("Microsoft Irina Desktop", "ru-RU", "Microsoft", true)
+        };
+
+        var selected = WeatherVoice.SelectVoice(voices, culture, VoiceEngine.SystemSpeech);
+        Assert.Equal("Microsoft Irina Desktop", selected!.Value.Name);
+    }
+
+    [Fact]
+    public void VoiceSelect_FallsBackWhenRhVoiceMissing()
+    {
+        var culture = CultureInfo.GetCultureInfo("ru-RU");
+        var voices = new[]
+        {
+            new WeatherVoice.VoiceCandidate("Microsoft Irina Desktop", "ru-RU", "Microsoft", true)
+        };
+
+        var auto = WeatherVoice.SelectVoice(voices, culture, VoiceEngine.Auto);
+        var rh = WeatherVoice.SelectVoice(voices, culture, VoiceEngine.RHVoice);
+        Assert.Equal("Microsoft Irina Desktop", auto!.Value.Name);
+        Assert.Equal("Microsoft Irina Desktop", rh!.Value.Name);
+    }
+
+    [Fact]
+    public void VoiceSelect_RecognizesShortElenaSapiName()
+    {
+        // Official Windows installers expose "Elena" with an empty description.
+        var culture = CultureInfo.GetCultureInfo("ru-RU");
+        var voices = new[]
+        {
+            new WeatherVoice.VoiceCandidate("Microsoft Zira Desktop", "en-US", "Microsoft", true),
+            new WeatherVoice.VoiceCandidate("Elena", "ru-RU", "", true)
+        };
+
+        Assert.True(WeatherVoice.IsRhVoice(voices[1]));
+        Assert.False(WeatherVoice.IsRhVoice(voices[0]));
+        var selected = WeatherVoice.SelectVoice(voices, culture, VoiceEngine.Auto, "Elena");
+        Assert.Equal("Elena", selected!.Value.Name);
+    }
+
+    [Fact]
+    public async Task Voice_RussianUsesInstalledRhVoiceWhenPresent()
+    {
+        using var synth = new System.Speech.Synthesis.SpeechSynthesizer();
+        var hasElena = synth.GetInstalledVoices().Any(v =>
+            v.Enabled
+            && v.VoiceInfo.Name.Equals("Elena", StringComparison.OrdinalIgnoreCase)
+            && v.VoiceInfo.Culture.TwoLetterISOLanguageName.Equals("ru", StringComparison.OrdinalIgnoreCase));
+        if (!hasElena)
+            return; // skip when RHVoice is not installed on the CI/agent machine
+
+        var script = MeteoTexts.VoiceScript("ru", "Москва", 8.0, 70, 3);
+        var clip = await WeatherVoice.SynthesizeAsync(
+            "ru",
+            script,
+            VoiceFormat.Ogg,
+            VoiceOptions.DefaultBitRate,
+            CancellationToken.None,
+            VoiceEngine.RHVoice,
+            "Elena");
+        Assert.True(clip.Bytes.Length > 64);
+        Assert.Equal("OggS", Encoding.ASCII.GetString(clip.Bytes, 0, 4));
     }
 
     [Fact]
@@ -143,7 +262,7 @@ public sealed class WeatherMediaTests
     [Fact]
     public async Task Voice_OggIsPlayableNearConfiguredBitRate()
     {
-        var script = MeteoTexts.VoiceScript("en", 1.0, 70, 3);
+        var script = MeteoTexts.VoiceScript("en", "Moscow", 1.0, 70, 3);
         var clip = await WeatherVoice.SynthesizeAsync(
             "en",
             script,
@@ -173,7 +292,7 @@ public sealed class WeatherMediaTests
         // Windows MF AAC at 44.1 kHz mono exposes 48/64/96… kbit/s — no exact 80; 64 wins the tie with 96.
         Assert.True(selected is 64_000 or 96_000, $"Unexpected nearest rate: {selected}");
 
-        var script = MeteoTexts.VoiceScript("en", 1.0, 70, 3);
+        var script = MeteoTexts.VoiceScript("en", "Moscow", 1.0, 70, 3);
         var clip = await WeatherVoice.SynthesizeAsync("en", script, VoiceFormat.M4a, requested, CancellationToken.None);
         Assert.Equal(selected, clip.BitRate);
         Assert.Equal("weather.m4a", clip.FileName);
@@ -201,7 +320,7 @@ public sealed class WeatherMediaTests
             WeatherVoice.OutputSampleRate,
             channels: 1,
             VoiceOptions.DefaultBitRate);
-        var script = MeteoTexts.VoiceScript("en", 1.0, 70, 3);
+        var script = MeteoTexts.VoiceScript("en", "Moscow", 1.0, 70, 3);
         var clip = await WeatherVoice.SynthesizeAsync(
             "en",
             script,

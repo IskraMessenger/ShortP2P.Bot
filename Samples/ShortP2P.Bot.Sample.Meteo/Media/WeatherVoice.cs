@@ -33,16 +33,26 @@ internal static class WeatherVoice
         string script,
         VoiceFormat format,
         int bitRate,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        VoiceEngine engine = VoiceEngine.Auto,
+        string? preferredVoice = null)
     {
         if (string.IsNullOrWhiteSpace(script))
             throw new ArgumentException("Voice script is empty.", nameof(script));
         VoiceOptions.RequireBitRate(bitRate);
 
-        return Task.Run(() => Synthesize(language, script, format, bitRate), cancellationToken);
+        return Task.Run(
+            () => Synthesize(language, script, format, bitRate, engine, preferredVoice),
+            cancellationToken);
     }
 
-    private static VoiceClip Synthesize(string language, string script, VoiceFormat format, int bitRate)
+    private static VoiceClip Synthesize(
+        string language,
+        string script,
+        VoiceFormat format,
+        int bitRate,
+        VoiceEngine engine,
+        string? preferredVoice)
     {
         using var wav = new MemoryStream();
         using (var synth = new SpeechSynthesizer())
@@ -50,7 +60,7 @@ internal static class WeatherVoice
             synth.Rate = 0;
             synth.Volume = 100;
             synth.SetOutputToWaveStream(wav);
-            Speak(synth, language, script);
+            Speak(synth, language, script, engine, preferredVoice);
         }
 
         if (wav.Length < 64)
@@ -178,10 +188,15 @@ internal static class WeatherVoice
             .First();
     }
 
-    private static void Speak(SpeechSynthesizer synth, string language, string script)
+    private static void Speak(
+        SpeechSynthesizer synth,
+        string language,
+        string script,
+        VoiceEngine engine,
+        string? preferredVoice)
     {
         var culture = Culture(language);
-        var voice = FindVoice(synth, culture);
+        var voice = FindVoice(synth, culture, engine, preferredVoice);
         // A voice for another language reads digits in its own language and skips Cyrillic and Chinese.
         // Spell those scripts phonetically and keep the prompt in one culture for the whole sentence.
         var text = voice is null ? MeteoTexts.Pronounceable(language, script) : script;
@@ -205,24 +220,116 @@ internal static class WeatherVoice
         }
     }
 
-    private static InstalledVoice? FindVoice(SpeechSynthesizer synth, CultureInfo culture)
+    private static InstalledVoice? FindVoice(
+        SpeechSynthesizer synth,
+        CultureInfo culture,
+        VoiceEngine engine,
+        string? preferredVoice)
     {
-        InstalledVoice? match = null;
+        var candidates = new List<VoiceCandidate>();
+        var byName = new Dictionary<string, InstalledVoice>(StringComparer.OrdinalIgnoreCase);
         foreach (var voice in synth.GetInstalledVoices())
         {
-            if (!voice.Enabled || !SameLanguage(voice.VoiceInfo.Culture, culture))
-                continue;
-
-            match = voice;
-            if (voice.VoiceInfo.Culture.Name.Equals(culture.Name, StringComparison.OrdinalIgnoreCase))
-                return voice;
+            var info = voice.VoiceInfo;
+            var candidate = new VoiceCandidate(
+                info.Name,
+                info.Culture.Name,
+                info.Description ?? string.Empty,
+                voice.Enabled);
+            candidates.Add(candidate);
+            byName.TryAdd(info.Name, voice);
         }
 
-        return match;
+        var selected = SelectVoice(candidates, culture, engine, preferredVoice);
+        return selected is null ? null : byName.GetValueOrDefault(selected.Value.Name);
     }
+
+    /// <summary>
+    /// Picks a SAPI voice for <paramref name="culture"/> honoring <paramref name="engine"/> and
+    /// optional <paramref name="preferredVoice"/>. RHVoice is detected by name/description.
+    /// </summary>
+    internal static VoiceCandidate? SelectVoice(
+        IEnumerable<VoiceCandidate> voices,
+        CultureInfo culture,
+        VoiceEngine engine,
+        string? preferredVoice = null)
+    {
+        var matching = voices
+            .Where(v => v.Enabled && SameLanguage(CultureInfo.GetCultureInfo(v.CultureName), culture))
+            .ToList();
+        if (matching.Count == 0)
+            return null;
+
+        if (engine == VoiceEngine.SystemSpeech)
+            matching = matching.Where(v => !IsRhVoice(v)).ToList();
+        else if (engine is VoiceEngine.Auto or VoiceEngine.RHVoice)
+        {
+            var rh = matching.Where(IsRhVoice).ToList();
+            if (rh.Count > 0)
+                matching = rh;
+            // else: RHVoice missing → keep System.Speech / other SAPI voices
+        }
+
+        if (matching.Count == 0)
+            return null;
+
+        if (!string.IsNullOrWhiteSpace(preferredVoice))
+        {
+            var preferred = matching.FirstOrDefault(v =>
+                v.Name.Equals(preferredVoice.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (preferred.Name is not null)
+                return preferred;
+
+            preferred = matching.FirstOrDefault(v =>
+                v.Name.Contains(preferredVoice.Trim(), StringComparison.OrdinalIgnoreCase)
+                || v.Description.Contains(preferredVoice.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (preferred.Name is not null)
+                return preferred;
+        }
+
+        return matching
+            .OrderByDescending(v => v.CultureName.Equals(culture.Name, StringComparison.OrdinalIgnoreCase))
+            .ThenByDescending(IsRhVoice)
+            .ThenBy(v => v.Name, StringComparer.OrdinalIgnoreCase)
+            .First();
+    }
+
+    /// <summary>
+    /// RHVoice SAPI installers often register the short voice name only (e.g. <c>Elena</c>),
+    /// with an empty description — not always a <c>RHVoice</c> prefix.
+    /// </summary>
+    internal static bool IsRhVoice(VoiceCandidate voice)
+    {
+        if (voice.Name.Contains("RHVoice", StringComparison.OrdinalIgnoreCase)
+            || voice.Description.Contains("RHVoice", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        var name = voice.Name.Trim();
+        if (name.StartsWith("Microsoft ", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        return RhVoiceVoiceNames.Contains(name);
+    }
+
+    /// <summary>Known RHVoice SAPI voice names as exposed by System.Speech after the official installers.</summary>
+    private static readonly HashSet<string> RhVoiceVoiceNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // Russian
+        "Aleksandr", "Aleksandr-HQ", "Yuriy", "Vitaliy", "Anna", "Evgeniy-rus", "Artemiy",
+        "Tatiana", "Victoria", "Mikhail", "Arina", "Pavel", "Elena", "Irina", "Umka",
+        "Vitaliy-ng", "Timofey",
+        // English
+        "Evgeniy-eng", "Alan", "Lyubov", "Bdl", "Clb", "Slt",
+        // Other languages shipped as SAPI voices
+        "Letícia-F123", "Leticia-F123", "Spomenka", "Natia", "Azamat", "Nazgul", "Talgat",
+        "Volodymyr", "Marianna", "Anatol", "Natalia", "Kiko", "Suze", "Hana", "Magda", "Natan"
+    };
 
     private static bool SameLanguage(CultureInfo voice, CultureInfo requested) =>
         voice.TwoLetterISOLanguageName.Equals(requested.TwoLetterISOLanguageName, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Lightweight SAPI voice row used for selection and tests without a live synthesizer.</summary>
+    internal readonly record struct VoiceCandidate(string Name, string CultureName, string Description, bool Enabled);
 
     private static CultureInfo Culture(string language) => language switch
     {

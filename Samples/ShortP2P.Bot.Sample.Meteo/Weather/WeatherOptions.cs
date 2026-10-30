@@ -1,3 +1,5 @@
+using System.Net;
+
 namespace ShortP2P.Bot.Sample.Meteo.Weather;
 
 /// <summary>
@@ -22,6 +24,12 @@ internal sealed class WeatherOptions
     /// <summary>Absolute https base URL of a Nominatim instance.</summary>
     public string OpenStreetMapBaseUrl { get; set; } = DefaultOpenStreetMapBaseUrl;
 
+    /// <summary>
+    /// Optional absolute http/https proxy for weather API HttpClients.
+    /// Empty, null, or omitted means direct (no proxy).
+    /// </summary>
+    public string? ProxyUrl { get; set; }
+
     public static Uri BrightSkyAddress(string? baseUrl)
     {
         var text = string.IsNullOrWhiteSpace(baseUrl) ? DefaultBrightSkyBaseUrl : baseUrl.Trim();
@@ -44,6 +52,39 @@ internal sealed class WeatherOptions
             throw new InvalidOperationException("Weather:OpenStreetMapBaseUrl must be an absolute https URL.");
 
         return uri;
+    }
+
+    /// <summary>
+    /// Returns <c>null</c> when proxy is off; otherwise an absolute http or https URI.
+    /// </summary>
+    public static Uri? ProxyAddress(string? proxyUrl)
+    {
+        if (string.IsNullOrWhiteSpace(proxyUrl))
+            return null;
+
+        var text = proxyUrl.Trim();
+        if (!Uri.TryCreate(text, UriKind.Absolute, out var uri)
+            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+            throw new InvalidOperationException(
+                "Weather:ProxyUrl must be an absolute http or https URL, or empty to disable the proxy.");
+
+        return uri;
+    }
+
+    /// <summary>
+    /// Builds a weather HTTP handler. An empty <paramref name="proxyUrl"/> turns the proxy off.
+    /// </summary>
+    public static HttpClientHandler CreateHandler(string? proxyUrl)
+    {
+        var address = ProxyAddress(proxyUrl);
+        if (address is null)
+            return new HttpClientHandler { UseProxy = false };
+
+        return new HttpClientHandler
+        {
+            Proxy = new WebProxy(address),
+            UseProxy = true
+        };
     }
 }
 
