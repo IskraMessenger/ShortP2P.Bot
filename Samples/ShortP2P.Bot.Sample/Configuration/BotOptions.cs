@@ -10,6 +10,9 @@ public sealed class BotOptions
 
     public string Description { get; set; } = "";
 
+    /// <summary>Integer software version reported to messenger servers.</summary>
+    public int Version { get; set; } = 1;
+
     /// <summary>When true, the meteo bot replies with fixed sample weather and does not call weather or geocoding APIs.</summary>
     public bool IsMock { get; set; }
 }

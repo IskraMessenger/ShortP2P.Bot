@@ -27,6 +27,8 @@ public static class ServiceCollectionExtensions
         if (configureCertificate is not null)
             optionsBuilder.Configure(configureCertificate);
 
+        services.AddOptions<BotHostOptions>();
+
         services.AddSingleton<IBotCertificateProvider, BotCertificateProvider>();
 
         services.AddHttpClient(HttpClientNames.MessengerServer, client =>

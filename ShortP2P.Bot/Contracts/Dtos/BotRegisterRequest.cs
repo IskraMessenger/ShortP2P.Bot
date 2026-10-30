@@ -26,4 +26,11 @@ public sealed class BotRegisterRequest
     /// Required by current messenger servers; exposed via GET /bots.
     /// </summary>
     public string MessagePublicKey { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Bot software version. Zero or greater.
+    /// Stored by the messenger server and returned to clients by GetBotVersion.
+    /// When zero, <c>BotMessenger</c> fills the host version before the request is sent.
+    /// </summary>
+    public int Version { get; set; }
 }

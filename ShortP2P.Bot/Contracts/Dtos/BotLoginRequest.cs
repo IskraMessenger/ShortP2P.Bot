@@ -21,4 +21,10 @@ public sealed class BotLoginRequest
     /// Must match the fingerprint stored at registration.
     /// </summary>
     public string FingerprintSha256 { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Current bot software version. Zero or greater.
+    /// Replaces the version stored at registration.
+    /// </summary>
+    public int Version { get; set; }
 }
