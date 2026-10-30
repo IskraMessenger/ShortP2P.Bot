@@ -52,15 +52,66 @@ public sealed class MeteoBehaviorTests
     }
 
     [Theory]
-    [InlineData("ru", "Здравствуйте! Температура сегодня: 8,2 облачно. Влажность: 70. Всего доброго!")]
-    [InlineData("en", "Hello! Temperature today: 8.2 cloudy. Humidity: 70. All the best!")]
-    [InlineData("es", "¡Hola! Temperatura de hoy: 8,2 nublado. Humedad: 70. ¡Que le vaya bien!")]
-    [InlineData("de", "Guten Tag! Temperatur heute: 8,2 bewölkt. Luftfeuchtigkeit: 70. Alles Gute!")]
-    [InlineData("fr", "Bonjour ! Température aujourd'hui : 8,2 nuageux. Humidité : 70. Tous mes vœux !")]
-    [InlineData("cn", "您好！今天的温度：8.2 多云。湿度：70。祝您一切顺利！")]
+    [InlineData("ru", "Здравствуйте! Температура сегодня: восемь запятая два облачно. Влажность: семьдесят. Всего Вам доброго!")]
+    [InlineData("en", "Hello! Temperature today: eight point two cloudy. Humidity: seventy. All the best to you!")]
+    [InlineData("es", "¡Hola! Temperatura de hoy: ocho coma dos nublado. Humedad: setenta. ¡Que le vaya bien!")]
+    [InlineData("de", "Guten Tag! Temperatur heute: acht Komma zwei bewölkt. Luftfeuchtigkeit: siebzig. Alles Gute für Sie!")]
+    [InlineData("fr", "Bonjour ! Température aujourd'hui : huit virgule deux nuageux. Humidité : soixante-dix. Je vous souhaite tout le meilleur !")]
+    [InlineData("cn", "您好！今天的温度：八点二 多云。湿度：七十。祝您一切顺利！")]
     public void VoiceScript_SpeaksWeatherInSelectedLanguage(string language, string expected)
     {
-        Assert.Equal(expected, MeteoTexts.VoiceScript(language, 8.2, 70, 3));
+        var script = MeteoTexts.VoiceScript(language, 8.2, 70, 3);
+        Assert.Equal(expected, script);
+        Assert.StartsWith(MeteoTexts.VoiceGreeting(language), script);
+        Assert.EndsWith(MeteoTexts.VoiceFarewell(language), script);
+        if (language != "ru")
+            Assert.DoesNotContain(script, letter => letter is >= '\u0400' and <= '\u04FF');
+    }
+
+    [Theory]
+    [InlineData("en", 21, "twenty one")]
+    [InlineData("en", 100, "one hundred")]
+    [InlineData("ru", 21, "двадцать один")]
+    [InlineData("ru", 100, "сто")]
+    [InlineData("es", 16, "dieciséis")]
+    [InlineData("es", 22, "veintidós")]
+    [InlineData("es", 100, "cien")]
+    [InlineData("de", 21, "einundzwanzig")]
+    [InlineData("de", 100, "hundert")]
+    [InlineData("fr", 21, "vingt et un")]
+    [InlineData("fr", 71, "soixante et onze")]
+    [InlineData("fr", 80, "quatre-vingts")]
+    [InlineData("fr", 100, "cent")]
+    [InlineData("cn", 10, "十")]
+    [InlineData("cn", 70, "七十")]
+    [InlineData("cn", 110, "一百一十")]
+    public void SpokenNumber_UsesTheSelectedLanguage(string language, int value, string expected)
+    {
+        Assert.Equal(expected, SpokenNumber.Cardinal(language, value));
+    }
+
+    [Fact]
+    public void Pronounceable_KeepsOneLanguageForTheInstalledVoice()
+    {
+        var russian = MeteoTexts.VoiceScript("ru", 8.2, 70, 3);
+        var spokenRussian = MeteoTexts.Pronounceable("ru", russian);
+        Assert.Equal(
+            "Zdravstvuyte! Temperatura segodnya: vosem zapyataya dva oblachno. Vlazhnost: semdesyat. Vsego Vam dobrogo!",
+            spokenRussian);
+        Assert.DoesNotContain(spokenRussian, letter => letter is >= '\u0400' and <= '\u04FF');
+
+        var chinese = MeteoTexts.VoiceScript("cn", 8.2, 70, 3);
+        var spokenChinese = MeteoTexts.Pronounceable("cn", chinese);
+        Assert.Equal(
+            "nin hao! jin tian de wen du: ba dian er duo yun. shi du: qi shi. zhu nin yi qie shun li!",
+            spokenChinese);
+        Assert.DoesNotContain(spokenChinese, letter => letter is >= '\u4E00' and <= '\u9FFF');
+
+        var english = MeteoTexts.VoiceScript("en", -3.5, 0, 0);
+        Assert.Equal(
+            "Hello! Temperature today: minus three point five clear. Humidity: zero. All the best to you!",
+            english);
+        Assert.Equal(english, MeteoTexts.Pronounceable("en", english));
     }
 
     [Theory]

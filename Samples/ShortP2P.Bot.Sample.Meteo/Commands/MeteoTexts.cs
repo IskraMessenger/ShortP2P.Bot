@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 
 namespace ShortP2P.Bot.Sample.Meteo.Commands;
 
@@ -220,12 +221,12 @@ internal static class MeteoTexts
 
     public static string VoiceFarewell(string language) => language switch
     {
-        "en" => "All the best!",
+        "en" => "All the best to you!",
         "es" => "¡Que le vaya bien!",
-        "de" => "Alles Gute!",
-        "fr" => "Tous mes vœux !",
+        "de" => "Alles Gute für Sie!",
+        "fr" => "Je vous souhaite tout le meilleur !",
         "cn" => "祝您一切顺利！",
-        _ => "Всего доброго!"
+        _ => "Всего Вам доброго!"
     };
 
     /// <summary>
@@ -272,12 +273,14 @@ internal static class MeteoTexts
         };
     }
 
-    /// <summary>Greeting, then today's temperature, condition, humidity, and farewell. Spoken in <paramref name="language"/>.</summary>
+    /// <summary>
+    /// Greeting, then today's temperature, condition and humidity, then farewell.
+    /// Every word, including the numbers, is in <paramref name="language"/>.
+    /// </summary>
     public static string VoiceScript(string language, double temperatureC, int humidityPercent, int weatherCode)
     {
-        var culture = VoiceCulture(language);
-        var temperature = temperatureC.ToString("0.0", culture);
-        var humidity = humidityPercent.ToString(culture);
+        var temperature = SpokenNumber.Temperature(language, temperatureC);
+        var humidity = SpokenNumber.Cardinal(language, humidityPercent);
         var condition = SpokenCondition(language, weatherCode);
         var greeting = VoiceGreeting(language);
         var farewell = VoiceFarewell(language);
@@ -291,6 +294,18 @@ internal static class MeteoTexts
             _ => $"{greeting} Температура сегодня: {temperature} {condition}. Влажность: {humidity}. {farewell}"
         };
     }
+
+    /// <summary>
+    /// Same sentence as <paramref name="script"/>, rewritten so one voice can say all of it.
+    /// Cyrillic and Chinese characters are dropped by an English voice, so those scripts are
+    /// spoken from a phonetic spelling. Latin-script languages stay as written.
+    /// </summary>
+    public static string Pronounceable(string language, string script) => language switch
+    {
+        "ru" => TransliterateRussian(script),
+        "cn" => ChinesePinyin(script),
+        _ => script
+    };
 
     /// <summary>Heavy snow is spoken as a blizzard. Every other code follows <see cref="ConditionKey"/>.</summary>
     public static string SpokenKey(int weatherCode)
@@ -308,14 +323,72 @@ internal static class MeteoTexts
         };
     }
 
-    private static CultureInfo VoiceCulture(string language) => language switch
+    private static string TransliterateRussian(string text)
     {
-        "en" => CultureInfo.GetCultureInfo("en-US"),
-        "es" => CultureInfo.GetCultureInfo("es-ES"),
-        "de" => CultureInfo.GetCultureInfo("de-DE"),
-        "fr" => CultureInfo.GetCultureInfo("fr-FR"),
-        "cn" => CultureInfo.GetCultureInfo("zh-CN"),
-        _ => CultureInfo.GetCultureInfo("ru-RU")
+        var builder = new StringBuilder(text.Length * 2);
+        foreach (var letter in text)
+        {
+            if (!RussianLetters.TryGetValue(char.ToLowerInvariant(letter), out var latin))
+            {
+                builder.Append(letter);
+                continue;
+            }
+
+            if (latin.Length == 0)
+                continue;
+
+            if (char.IsUpper(letter))
+                latin = char.ToUpperInvariant(latin[0]) + latin[1..];
+            builder.Append(latin);
+        }
+
+        return builder.ToString();
+    }
+
+    private static readonly Dictionary<char, string> RussianLetters = new()
+    {
+        ['а'] = "a", ['б'] = "b", ['в'] = "v", ['г'] = "g", ['д'] = "d", ['е'] = "e", ['ё'] = "yo",
+        ['ж'] = "zh", ['з'] = "z", ['и'] = "i", ['й'] = "y", ['к'] = "k", ['л'] = "l", ['м'] = "m",
+        ['н'] = "n", ['о'] = "o", ['п'] = "p", ['р'] = "r", ['с'] = "s", ['т'] = "t", ['у'] = "u",
+        ['ф'] = "f", ['х'] = "kh", ['ц'] = "ts", ['ч'] = "ch", ['ш'] = "sh", ['щ'] = "shch",
+        ['ъ'] = "", ['ы'] = "y", ['ь'] = "", ['э'] = "e", ['ю'] = "yu", ['я'] = "ya"
+    };
+
+    private static string ChinesePinyin(string text)
+    {
+        var builder = new StringBuilder(text.Length * 2);
+        foreach (var letter in text)
+        {
+            if (ChineseSyllables.TryGetValue(letter, out var syllable))
+            {
+                if (builder.Length > 0 && builder[^1] != ' ')
+                    builder.Append(' ');
+                builder.Append(syllable);
+                continue;
+            }
+
+            builder.Append(letter switch
+            {
+                '！' => '!',
+                '。' => '.',
+                '：' => ':',
+                '，' or '、' => ',',
+                _ => letter
+            });
+        }
+
+        return string.Join(' ', builder.ToString().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    private static readonly Dictionary<char, string> ChineseSyllables = new()
+    {
+        ['您'] = "nin", ['好'] = "hao", ['今'] = "jin", ['天'] = "tian", ['的'] = "de",
+        ['温'] = "wen", ['度'] = "du", ['湿'] = "shi", ['雨'] = "yu", ['雪'] = "xue",
+        ['暴'] = "bao", ['风'] = "feng", ['晴'] = "qing", ['多'] = "duo", ['云'] = "yun",
+        ['祝'] = "zhu", ['一'] = "yi", ['切'] = "qie", ['顺'] = "shun", ['利'] = "li",
+        ['零'] = "ling", ['二'] = "er", ['三'] = "san", ['四'] = "si", ['五'] = "wu",
+        ['六'] = "liu", ['七'] = "qi", ['八'] = "ba", ['九'] = "jiu", ['十'] = "shi",
+        ['百'] = "bai", ['点'] = "dian", ['负'] = "fu"
     };
 
     private static string Greeting(string language) => language switch

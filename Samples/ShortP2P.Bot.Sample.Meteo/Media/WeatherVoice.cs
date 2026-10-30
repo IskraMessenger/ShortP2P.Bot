@@ -7,6 +7,7 @@ using Concentus.Enums;
 using Concentus.Oggfile;
 using NAudio.MediaFoundation;
 using NAudio.Wave;
+using ShortP2P.Bot.Sample.Meteo.Commands;
 
 namespace ShortP2P.Bot.Sample.Meteo.Media;
 
@@ -180,28 +181,48 @@ internal static class WeatherVoice
     private static void Speak(SpeechSynthesizer synth, string language, string script)
     {
         var culture = Culture(language);
-        try
-        {
-            synth.SelectVoiceByHints(VoiceGender.NotSet, VoiceAge.NotSet, 0, culture);
-        }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or PlatformNotSupportedException)
-        {
-            // No voice is installed for this culture. The default voice still reads the script text.
-        }
+        var voice = FindVoice(synth, culture);
+        // A voice for another language reads digits in its own language and skips Cyrillic and Chinese.
+        // Spell those scripts phonetically and keep the prompt in one culture for the whole sentence.
+        var text = voice is null ? MeteoTexts.Pronounceable(language, script) : script;
+        if (voice is not null)
+            synth.SelectVoice(voice.VoiceInfo.Name);
 
+        var previous = CultureInfo.CurrentCulture;
+        var previousUi = CultureInfo.CurrentUICulture;
         try
         {
+            CultureInfo.CurrentCulture = culture;
+            CultureInfo.CurrentUICulture = culture;
             var prompt = new PromptBuilder(culture);
-            prompt.AppendText(script);
+            prompt.AppendText(text);
             synth.Speak(prompt);
-            return;
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or PlatformNotSupportedException)
+        finally
         {
+            CultureInfo.CurrentCulture = previous;
+            CultureInfo.CurrentUICulture = previousUi;
+        }
+    }
+
+    private static InstalledVoice? FindVoice(SpeechSynthesizer synth, CultureInfo culture)
+    {
+        InstalledVoice? match = null;
+        foreach (var voice in synth.GetInstalledVoices())
+        {
+            if (!voice.Enabled || !SameLanguage(voice.VoiceInfo.Culture, culture))
+                continue;
+
+            match = voice;
+            if (voice.VoiceInfo.Culture.Name.Equals(culture.Name, StringComparison.OrdinalIgnoreCase))
+                return voice;
         }
 
-        synth.Speak(script);
+        return match;
     }
+
+    private static bool SameLanguage(CultureInfo voice, CultureInfo requested) =>
+        voice.TwoLetterISOLanguageName.Equals(requested.TwoLetterISOLanguageName, StringComparison.OrdinalIgnoreCase);
 
     private static CultureInfo Culture(string language) => language switch
     {
