@@ -1,6 +1,8 @@
 using System.Drawing;
 using System.Text;
 using System.Text.Json;
+using Concentus;
+using Concentus.Oggfile;
 using NAudio.Wave;
 using ShortP2P.Bot.Contracts;
 using ShortP2P.Bot.Sample.Echo;
@@ -63,19 +65,47 @@ public sealed class WeatherMediaTests
     }
 
     [Fact]
-    public void Archive_WritesPngAndM4aUnderSaved()
+    public void Archive_WritesPngAndVoiceUnderSaved()
     {
         var png = new byte[] { 0x89, 0x50, 0x4E, 0x47, 1, 2, 3 };
-        var m4a = new byte[] { 0, 0, 0, 0x18, (byte)'f', (byte)'t', (byte)'y', (byte)'p' };
-        var paths = WeatherMediaArchive.Save("rain", "ru", png, m4a);
+        var voice = new VoiceClip(
+            new byte[] { 0x4F, 0x67, 0x67, 0x53, 1, 2, 3 },
+            VoiceFormat.Ogg,
+            VoiceOptions.DefaultBitRate);
+        var paths = WeatherMediaArchive.Save("rain", "ru", png, voice);
         Assert.Equal(2, paths.Count);
         foreach (var path in paths)
         {
             Assert.StartsWith(WeatherMediaArchive.RootDirectory, path);
             Assert.True(File.Exists(path));
-            Assert.True(path.EndsWith(".png") || path.EndsWith(".m4a"));
+            Assert.True(path.EndsWith(".png") || path.EndsWith(".ogg"));
             File.Delete(path);
         }
+    }
+
+    [Theory]
+    [InlineData(null, "Ogg")]
+    [InlineData("", "Ogg")]
+    [InlineData("ogg", "Ogg")]
+    [InlineData("OGG", "Ogg")]
+    [InlineData("m4a", "M4a")]
+    [InlineData("MP3", "Mp3")]
+    public void VoiceFormat_ParsesKnownNames(string? text, string expected) =>
+        Assert.Equal(expected, VoiceOptions.Parse(text).ToString());
+
+    [Fact]
+    public void VoiceFormat_RejectsUnknownName()
+    {
+        var error = Assert.Throws<InvalidOperationException>(() => VoiceOptions.Parse("wav"));
+        Assert.Contains("ogg", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void VoiceBitRate_RejectsOutOfRange()
+    {
+        Assert.Throws<InvalidOperationException>(() => VoiceOptions.RequireBitRate(1_000));
+        Assert.Throws<InvalidOperationException>(() => VoiceOptions.RequireBitRate(400_000));
+        Assert.Equal(VoiceOptions.DefaultBitRate, VoiceOptions.RequireBitRate(VoiceOptions.DefaultBitRate));
     }
 
     [Fact]
@@ -111,18 +141,44 @@ public sealed class WeatherMediaTests
     }
 
     [Fact]
-    public async Task Voice_IsM4aNearTarget80Kbps()
+    public async Task Voice_OggIsPlayableNearConfiguredBitRate()
+    {
+        var script = MeteoTexts.VoiceScript("en", 1.0, 70, 3);
+        var clip = await WeatherVoice.SynthesizeAsync(
+            "en",
+            script,
+            VoiceFormat.Ogg,
+            VoiceOptions.DefaultBitRate,
+            CancellationToken.None);
+        Assert.Equal(VoiceFormat.Ogg, clip.Format);
+        Assert.Equal("weather.ogg", clip.FileName);
+        Assert.Equal("audio/ogg", clip.MimeType);
+        Assert.Equal(VoiceOptions.DefaultBitRate, clip.BitRate);
+        Assert.True(clip.Bytes.Length > 64);
+        Assert.Equal("OggS", Encoding.ASCII.GetString(clip.Bytes, 0, 4));
+        Assert.True(IndexOf(clip.Bytes, "OpusHead"u8.ToArray()) >= 0, "ogg is missing OpusHead");
+
+        var decoded = DecodeOpus(clip.Bytes);
+        Assert.True(decoded.MeanAbsolute > 80, "ogg decoded to silence");
+        var kbps = (int)(clip.Bytes.Length * 8 / decoded.Seconds / 1000);
+        Assert.InRange(kbps, 24, 128);
+    }
+
+    [Fact]
+    public async Task Voice_M4aIsAlignedNearRequestedBitRate()
     {
         NAudio.MediaFoundation.MediaFoundationApi.Startup();
-        var selected = WeatherVoice.NearestAacBitRate(
-            WeatherVoice.OutputSampleRate,
-            channels: 1,
-            WeatherVoice.TargetBitRate);
+        const int requested = 80_000;
+        var selected = WeatherVoice.NearestAacBitRate(WeatherVoice.OutputSampleRate, channels: 1, requested);
         // Windows MF AAC at 44.1 kHz mono exposes 48/64/96… kbit/s — no exact 80; 64 wins the tie with 96.
         Assert.True(selected is 64_000 or 96_000, $"Unexpected nearest rate: {selected}");
 
         var script = MeteoTexts.VoiceScript("en", 1.0, 70, 3);
-        var m4a = await WeatherVoice.SynthesizeAsync("en", script, CancellationToken.None);
+        var clip = await WeatherVoice.SynthesizeAsync("en", script, VoiceFormat.M4a, requested, CancellationToken.None);
+        Assert.Equal(selected, clip.BitRate);
+        Assert.Equal("weather.m4a", clip.FileName);
+        Assert.Equal("audio/mp4", clip.MimeType);
+        var m4a = clip.Bytes;
         Assert.True(m4a.Length > 256);
         Assert.Equal("ftyp", Encoding.ASCII.GetString(m4a, 4, 4));
         Assert.Equal("M4A ", Encoding.ASCII.GetString(m4a, 8, 4));
@@ -134,16 +190,61 @@ public sealed class WeatherMediaTests
 
         var kbps = AverageBitRateKbps(m4a);
         Assert.InRange(kbps, selected / 1000 - 16, selected / 1000 + 16);
-        Assert.True(MeanAbsoluteSample(m4a) > 80, "m4a decoded to silence");
+        Assert.True(MeanAbsoluteSample(m4a, ".m4a") > 80, "m4a decoded to silence");
+    }
+
+    [Fact]
+    public async Task Voice_Mp3UsesNearestMediaFoundationRate()
+    {
+        NAudio.MediaFoundation.MediaFoundationApi.Startup();
+        var selected = WeatherVoice.NearestMp3BitRate(
+            WeatherVoice.OutputSampleRate,
+            channels: 1,
+            VoiceOptions.DefaultBitRate);
+        var script = MeteoTexts.VoiceScript("en", 1.0, 70, 3);
+        var clip = await WeatherVoice.SynthesizeAsync(
+            "en",
+            script,
+            VoiceFormat.Mp3,
+            VoiceOptions.DefaultBitRate,
+            CancellationToken.None);
+        Assert.Equal(selected, clip.BitRate);
+        Assert.Equal("weather.mp3", clip.FileName);
+        Assert.Equal("audio/mpeg", clip.MimeType);
+        Assert.True(clip.Bytes.Length > 256);
+        Assert.True(MeanAbsoluteSample(clip.Bytes, ".mp3") > 80, "mp3 decoded to silence");
     }
 
     private static int ReadPngInt(byte[] png, int offset) =>
         (png[offset] << 24) | (png[offset + 1] << 16) | (png[offset + 2] << 8) | png[offset + 3];
 
-    private static double MeanAbsoluteSample(byte[] m4a)
+    private static (double MeanAbsolute, double Seconds) DecodeOpus(byte[] ogg)
     {
-        var path = Path.Combine(Path.GetTempPath(), "meteo-voice-" + Guid.NewGuid().ToString("N") + ".m4a");
-        File.WriteAllBytes(path, m4a);
+        using var stream = new MemoryStream(ogg);
+        var decoder = OpusCodecFactory.CreateDecoder(WeatherVoice.OpusSampleRate, 1);
+        var reader = new OpusOggReadStream(decoder, stream);
+        long sum = 0;
+        long count = 0;
+        while (reader.HasNextPacket)
+        {
+            var packet = reader.DecodeNextPacket();
+            if (packet is null || packet.Length == 0)
+                continue;
+            foreach (var sample in packet)
+            {
+                sum += Math.Abs(sample);
+                count++;
+            }
+        }
+
+        Assert.True(count > WeatherVoice.OpusSampleRate / 2, "ogg decoded to almost no audio");
+        return (sum / (double)count, count / (double)WeatherVoice.OpusSampleRate);
+    }
+
+    private static double MeanAbsoluteSample(byte[] audio, string extension)
+    {
+        var path = Path.Combine(Path.GetTempPath(), "meteo-voice-" + Guid.NewGuid().ToString("N") + extension);
+        File.WriteAllBytes(path, audio);
         try
         {
             using var reader = new MediaFoundationReader(path);
@@ -161,7 +262,7 @@ public sealed class WeatherMediaTests
                 }
             }
 
-            Assert.True(count > reader.WaveFormat.SampleRate, "m4a decoded to almost no audio");
+            Assert.True(count > reader.WaveFormat.SampleRate, "audio decoded to almost no samples");
             return count == 0 ? 0 : sum / (double)count;
         }
         finally

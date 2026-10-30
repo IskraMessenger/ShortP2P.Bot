@@ -2,34 +2,46 @@ using System.Buffers.Binary;
 using System.Globalization;
 using System.Speech.Synthesis;
 using System.Text;
+using Concentus;
+using Concentus.Enums;
+using Concentus.Oggfile;
 using NAudio.MediaFoundation;
 using NAudio.Wave;
 
 namespace ShortP2P.Bot.Sample.Meteo.Media;
 
 /// <summary>
-/// Speaks the weather script and encodes AAC in an m4a container.
-/// Target bitrate is 80 kbit/s; Windows Media Foundation AAC only exposes discrete rates,
-/// so the encoder picks the nearest supported rate after resampling to 44.1 kHz mono.
-/// The sink's own file has odd-sized uuid/hdlr boxes, so the bytes are rewritten as a 4-byte-aligned M4A.
+/// Speaks the weather script and encodes it as Ogg Opus, AAC in an m4a container, or MP3.
+/// Opus keeps the requested bitrate. Media Foundation AAC and MP3 only expose discrete rates,
+/// so those encoders pick the nearest supported rate after resampling to 44.1 kHz mono.
+/// The AAC sink writes odd-sized uuid/hdlr boxes, so m4a bytes are rewritten 4-byte aligned.
 /// </summary>
 internal static class WeatherVoice
 {
-    public const int TargetBitRate = 80_000;
     public const int OutputSampleRate = 44_100;
+    public const int OpusSampleRate = 48_000;
+
+    /// <summary>Opus rejects a target above 300 kbit/s per channel.</summary>
+    private const int OpusMaxBitRate = 300_000;
 
     private static readonly object EncoderGate = new();
     private static bool _encoderReady;
 
-    public static Task<byte[]> SynthesizeAsync(string language, string script, CancellationToken cancellationToken)
+    public static Task<VoiceClip> SynthesizeAsync(
+        string language,
+        string script,
+        VoiceFormat format,
+        int bitRate,
+        CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(script))
             throw new ArgumentException("Voice script is empty.", nameof(script));
+        VoiceOptions.RequireBitRate(bitRate);
 
-        return Task.Run(() => Synthesize(language, script), cancellationToken);
+        return Task.Run(() => Synthesize(language, script, format, bitRate), cancellationToken);
     }
 
-    private static byte[] Synthesize(string language, string script)
+    private static VoiceClip Synthesize(string language, string script, VoiceFormat format, int bitRate)
     {
         using var wav = new MemoryStream();
         using (var synth = new SpeechSynthesizer())
@@ -44,21 +56,73 @@ internal static class WeatherVoice
             throw new InvalidOperationException("Speech synthesis produced an empty wave.");
 
         wav.Position = 0;
+        return format switch
+        {
+            VoiceFormat.M4a => EncodeMediaFoundation(wav, bitRate, VoiceFormat.M4a),
+            VoiceFormat.Mp3 => EncodeMediaFoundation(wav, bitRate, VoiceFormat.Mp3),
+            _ => EncodeOgg(wav, bitRate)
+        };
+    }
+
+    private static VoiceClip EncodeOgg(MemoryStream wav, int bitRate)
+    {
+        EnsureEncoder();
+        short[] pcm;
+        using (var reader = new WaveFileReader(wav))
+        {
+            var target = new WaveFormat(OpusSampleRate, 16, 1);
+            using var resampler = new MediaFoundationResampler(reader, target) { ResamplerQuality = 60 };
+            pcm = ReadMonoPcm16(resampler);
+        }
+
+        if (pcm.Length < OpusSampleRate / 5)
+            throw new InvalidOperationException("Speech synthesis produced an empty wave.");
+
+        var opusBitRate = Math.Min(bitRate, OpusMaxBitRate);
+        var encoder = OpusCodecFactory.CreateEncoder(OpusSampleRate, 1, OpusApplication.OPUS_APPLICATION_VOIP);
+        encoder.Bitrate = opusBitRate;
+        encoder.SignalType = OpusSignal.OPUS_SIGNAL_VOICE;
+        encoder.UseVBR = true;
+        encoder.UseConstrainedVBR = true;
+        encoder.UseDTX = false;
+
+        using var output = new MemoryStream();
+        var ogg = new OpusOggWriteStream(encoder, output, new OpusTags(), OpusSampleRate, leaveOpen: true);
+        ogg.WriteSamples(pcm, 0, pcm.Length);
+        ogg.Finish();
+        var encoded = output.ToArray();
+        if (encoded.Length < 32 || !encoded.AsSpan(0, 4).SequenceEqual("OggS"u8))
+            throw new InvalidOperationException("Opus encoder produced an empty file.");
+
+        return new VoiceClip(encoded, VoiceFormat.Ogg, opusBitRate);
+    }
+
+    private static VoiceClip EncodeMediaFoundation(MemoryStream wav, int desiredBitRate, VoiceFormat format)
+    {
         var dir = Path.Combine(Path.GetTempPath(), "meteo-voice-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
-        var m4aPath = Path.Combine(dir, "weather.m4a");
+        var path = Path.Combine(dir, "weather" + (format == VoiceFormat.Mp3 ? ".mp3" : ".m4a"));
         try
         {
             EnsureEncoder();
             using var reader = new WaveFileReader(wav);
             var target = new WaveFormat(OutputSampleRate, 16, 1);
             using var resampler = new MediaFoundationResampler(reader, target) { ResamplerQuality = 60 };
-            var bitRate = NearestAacBitRate(target.SampleRate, target.Channels, TargetBitRate);
-            MediaFoundationEncoder.EncodeToAac(resampler, m4aPath, bitRate);
-            var encoded = File.ReadAllBytes(m4aPath);
+            var subtype = format == VoiceFormat.Mp3
+                ? AudioSubtypes.MFAudioFormat_MP3
+                : AudioSubtypes.MFAudioFormat_AAC;
+            var bitRate = NearestBitRate(subtype, target.SampleRate, target.Channels, desiredBitRate);
+            if (format == VoiceFormat.Mp3)
+                MediaFoundationEncoder.EncodeToMp3(resampler, path, bitRate);
+            else
+                MediaFoundationEncoder.EncodeToAac(resampler, path, bitRate);
+
+            var encoded = File.ReadAllBytes(path);
             if (encoded.Length < 32)
-                throw new InvalidOperationException("AAC encoder produced an empty file.");
-            return ToStandardM4a(encoded);
+                throw new InvalidOperationException($"{format} encoder produced an empty file.");
+            if (format == VoiceFormat.M4a)
+                encoded = ToStandardM4a(encoded);
+            return new VoiceClip(encoded, format, bitRate);
         }
         finally
         {
@@ -72,12 +136,40 @@ internal static class WeatherVoice
         }
     }
 
-    /// <summary>Nearest Media Foundation AAC bitrate for the given PCM layout (exact 80 kbit/s is usually unavailable).</summary>
-    public static int NearestAacBitRate(int sampleRate, int channels, int desiredBitRate)
+    private static short[] ReadMonoPcm16(IWaveProvider source)
     {
-        var rates = MediaFoundationEncoder.GetEncodeBitrates(AudioSubtypes.MFAudioFormat_AAC, sampleRate, channels);
+        if (source.WaveFormat.BitsPerSample != 16 || source.WaveFormat.Channels != 1)
+            throw new InvalidOperationException("Expected 16-bit mono PCM.");
+
+        using var buffer = new MemoryStream();
+        var chunk = new byte[Math.Max(2, source.WaveFormat.AverageBytesPerSecond)];
+        int read;
+        while ((read = source.Read(chunk, 0, chunk.Length)) > 0)
+            buffer.Write(chunk, 0, read);
+
+        var bytes = buffer.ToArray();
+        if (bytes.Length < 2 || bytes.Length % 2 != 0)
+            throw new InvalidOperationException("Resampler produced an incomplete PCM buffer.");
+
+        var samples = new short[bytes.Length / 2];
+        Buffer.BlockCopy(bytes, 0, samples, 0, bytes.Length);
+        return samples;
+    }
+
+    /// <summary>Nearest Media Foundation AAC bitrate for the given PCM layout.</summary>
+    public static int NearestAacBitRate(int sampleRate, int channels, int desiredBitRate) =>
+        NearestBitRate(AudioSubtypes.MFAudioFormat_AAC, sampleRate, channels, desiredBitRate);
+
+    /// <summary>Nearest Media Foundation MP3 bitrate for the given PCM layout.</summary>
+    public static int NearestMp3BitRate(int sampleRate, int channels, int desiredBitRate) =>
+        NearestBitRate(AudioSubtypes.MFAudioFormat_MP3, sampleRate, channels, desiredBitRate);
+
+    private static int NearestBitRate(Guid subtype, int sampleRate, int channels, int desiredBitRate)
+    {
+        EnsureEncoder();
+        var rates = MediaFoundationEncoder.GetEncodeBitrates(subtype, sampleRate, channels);
         if (rates.Length == 0)
-            throw new InvalidOperationException($"No AAC bitrates for {sampleRate} Hz / {channels} ch.");
+            throw new InvalidOperationException($"No encoder bitrates for {subtype} at {sampleRate} Hz / {channels} ch.");
 
         return rates
             .OrderBy(rate => Math.Abs(rate - desiredBitRate))

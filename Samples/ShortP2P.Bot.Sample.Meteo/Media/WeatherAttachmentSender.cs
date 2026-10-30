@@ -34,10 +34,10 @@ internal sealed class WeatherAttachmentSender
         string clientPublicKeyJson,
         string? correlationId,
         byte[]? png,
-        byte[]? m4a,
+        VoiceClip? voice,
         CancellationToken cancellationToken)
     {
-        if ((png is null || png.Length == 0) && (m4a is null || m4a.Length == 0))
+        if ((png is null || png.Length == 0) && voice is not { Bytes.Length: > 0 })
             return Array.Empty<BotClientMessageDto>();
 
         var servers = await _servers.GetAvailableOrderedAsync(cancellationToken).ConfigureAwait(false);
@@ -70,7 +70,7 @@ internal sealed class WeatherAttachmentSender
                 cancellationToken).ConfigureAwait(false));
         }
 
-        if (m4a is { Length: > 0 })
+        if (voice is { Bytes.Length: > 0 } spoken)
         {
             messages.Add(await UploadOneAsync(
                 serverUri,
@@ -81,9 +81,9 @@ internal sealed class WeatherAttachmentSender
                 clientPublicKeyJson,
                 correlationId,
                 "audio",
-                "weather.m4a",
-                "audio/mp4",
-                m4a,
+                spoken.FileName,
+                spoken.MimeType,
+                spoken.Bytes,
                 cancellationToken).ConfigureAwait(false));
         }
 

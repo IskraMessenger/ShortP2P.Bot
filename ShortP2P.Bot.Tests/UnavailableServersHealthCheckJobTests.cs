@@ -51,7 +51,7 @@ public sealed class UnavailableServersHealthCheckJobTests
             await servers.UpsertAsync(new MessengerServerEntity
             {
                 BaseUrl = mock.BaseUri.ToString().TrimEnd('/'),
-                NetworkId = "botNet",
+                NetworkId = "bot_network_id",
                 BotName = "echo",
                 BotKey = MessengerServerMock.DefaultBotKey,
                 ServerFingerprintSha256 = MessengerServerMock.DefaultServerFingerprint,

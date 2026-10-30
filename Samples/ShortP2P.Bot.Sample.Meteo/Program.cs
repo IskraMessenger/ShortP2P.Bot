@@ -29,6 +29,10 @@ builder.Services.AddSingleton<SqliteMessageKeyStore>();
 builder.Services.AddSingleton<SqliteChatStore>();
 builder.Services.AddSingleton<SqliteWeatherCache>();
 builder.Services.Configure<WeatherOptions>(builder.Configuration.GetSection(WeatherOptions.SectionName));
+builder.Services.Configure<VoiceOptions>(builder.Configuration.GetSection(VoiceOptions.SectionName));
+var voice = new VoiceOptions();
+builder.Configuration.GetSection(VoiceOptions.SectionName).Bind(voice);
+voice.Validate();
 var weatherProvider = WeatherProviders.Parse(builder.Configuration["Weather:Provider"]);
 if (weatherProvider == WeatherProviderKind.BrightSky)
     WeatherOptions.BrightSkyAddress(builder.Configuration["Weather:BrightSkyBaseUrl"]);

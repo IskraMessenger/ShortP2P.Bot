@@ -1,6 +1,6 @@
 namespace ShortP2P.Bot.Sample.Meteo.Media;
 
-/// <summary>Writes generated weather PNG and m4a files under a local <c>saved</c> folder for inspection.</summary>
+/// <summary>Writes generated weather PNG and voice files under a local <c>saved</c> folder for inspection.</summary>
 internal static class WeatherMediaArchive
 {
     public const string FolderName = "saved";
@@ -12,7 +12,7 @@ internal static class WeatherMediaArchive
         string conditionKey,
         string language,
         byte[]? png,
-        byte[]? m4a,
+        VoiceClip? voice,
         ILogger? logger = null)
     {
         var stamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss");
@@ -24,8 +24,8 @@ internal static class WeatherMediaArchive
         var saved = new List<string>(2);
         if (png is { Length: > 0 })
             saved.Add(Write(Path.Combine(RootDirectory, prefix + ".png"), png, logger));
-        if (m4a is { Length: > 0 })
-            saved.Add(Write(Path.Combine(RootDirectory, prefix + ".m4a"), m4a, logger));
+        if (voice is { Bytes.Length: > 0 } spoken)
+            saved.Add(Write(Path.Combine(RootDirectory, prefix + spoken.Extension), spoken.Bytes, logger));
         return saved;
     }
 

@@ -21,6 +21,7 @@ internal sealed class MeteoBotService : BackgroundService
     private readonly MeteoCommandHandler _commands;
     private readonly WeatherAttachmentSender _attachments;
     private readonly SampleBotOptions _options;
+    private readonly VoiceOptions _voice;
     private readonly ILogger<MeteoBotService> _logger;
     private string _privateKeyJson = "";
 
@@ -32,6 +33,7 @@ internal sealed class MeteoBotService : BackgroundService
         MeteoCommandHandler commands,
         WeatherAttachmentSender attachments,
         IOptions<SampleBotOptions> options,
+        IOptions<VoiceOptions> voice,
         ILogger<MeteoBotService> logger)
     {
         _messenger = messenger ?? throw new ArgumentNullException(nameof(messenger));
@@ -41,12 +43,16 @@ internal sealed class MeteoBotService : BackgroundService
         _commands = commands ?? throw new ArgumentNullException(nameof(commands));
         _attachments = attachments ?? throw new ArgumentNullException(nameof(attachments));
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
+        _voice = voice?.Value ?? throw new ArgumentNullException(nameof(voice));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("Meteo bot started");
+        _logger.LogInformation(
+            "Meteo bot started; voice {Format} at {BitRate} bit/s",
+            _voice.SelectedFormat,
+            _voice.BitRate);
         try
         {
             var serverUri = RequireServerUri();
@@ -245,7 +251,7 @@ internal sealed class MeteoBotService : BackgroundService
         CancellationToken cancellationToken)
     {
         byte[]? png = null;
-        byte[]? voice = null;
+        VoiceClip? voice = null;
         var condition = MeteoTexts.ConditionKey(reply.Report!.WeatherCode);
         try
         {
@@ -265,8 +271,17 @@ internal sealed class MeteoBotService : BackgroundService
                 report.TemperatureC,
                 report.HumidityPercent,
                 report.WeatherCode);
-            voice = await WeatherVoice.SynthesizeAsync(reply.Language, script, cancellationToken).ConfigureAwait(false);
-            _logger.LogInformation("Weather voice is {Bytes} bytes", voice.Length);
+            voice = await WeatherVoice.SynthesizeAsync(
+                reply.Language,
+                script,
+                _voice.SelectedFormat,
+                _voice.BitRate,
+                cancellationToken).ConfigureAwait(false);
+            _logger.LogInformation(
+                "Weather voice is {Bytes} bytes ({FileName} at {BitRate} bit/s)",
+                voice.Value.Bytes.Length,
+                voice.Value.FileName,
+                voice.Value.BitRate);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
