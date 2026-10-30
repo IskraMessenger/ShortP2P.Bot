@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Polly;
 using Polly.Retry;
 using ShortP2P.Bot.Contracts.Dtos;
@@ -25,18 +26,21 @@ public sealed class BotMessenger : IBotMessenger
     private readonly IMessengerServerRepository _servers;
     private readonly IBotCertificateProvider _certificate;
     private readonly ILogger<BotMessenger> _logger;
+    private readonly BotHostOptions _host;
     private readonly AsyncRetryPolicy _poolRetryPolicy;
 
     public BotMessenger(
         IMessengerServerApiClient apiClient,
         IMessengerServerRepository servers,
         IBotCertificateProvider certificate,
-        ILogger<BotMessenger> logger)
+        ILogger<BotMessenger> logger,
+        IOptions<BotHostOptions> hostOptions)
     {
         _apiClient = apiClient ?? throw new ArgumentNullException(nameof(apiClient));
         _servers = servers ?? throw new ArgumentNullException(nameof(servers));
         _certificate = certificate ?? throw new ArgumentNullException(nameof(certificate));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _host = hostOptions?.Value ?? new BotHostOptions();
 
         _poolRetryPolicy = Policy
             .Handle<Exception>(ex => ex is not OperationCanceledException)
@@ -74,6 +78,7 @@ public sealed class BotMessenger : IBotMessenger
         }
 
         request.FingerprintSha256 = _certificate.FingerprintSha256;
+        request.Version = ReportedVersion(request.Version);
 
         var response = await _apiClient.RegisterAsync(serverBaseUrl, request, cancellationToken)
             .ConfigureAwait(false);
@@ -141,7 +146,8 @@ public sealed class BotMessenger : IBotMessenger
                 NetworkId = server.NetworkId,
                 BotName = server.BotName,
                 BotKey = server.BotKey,
-                FingerprintSha256 = _certificate.FingerprintSha256
+                FingerprintSha256 = _certificate.FingerprintSha256,
+                Version = ReportedVersion(0)
             },
             cancellationToken).ConfigureAwait(false);
 
@@ -169,6 +175,9 @@ public sealed class BotMessenger : IBotMessenger
         _logger.LogInformation("Bot authorized on {BaseUrl}; server certificate fingerprint verified", baseUrl);
         return response;
     }
+
+    private int ReportedVersion(int explicitVersion) =>
+        explicitVersion != 0 ? explicitVersion : _host.Version;
 
     public async Task RemoveAsync(
         Uri serverBaseUrl,

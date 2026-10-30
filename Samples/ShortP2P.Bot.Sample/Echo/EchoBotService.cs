@@ -144,7 +144,8 @@ internal sealed class EchoBotService : BackgroundService
                     BotReadableName = bot.ReadableName.Trim(),
                     BotDescription = bot.Description.Trim(),
                     FingerprintSha256 = fingerprintSha256,
-                    MessagePublicKey = messagePublicKey
+                    MessagePublicKey = messagePublicKey,
+                    Version = bot.Version
                 }, stoppingToken).ConfigureAwait(false);
 
                 _logger.LogInformation(

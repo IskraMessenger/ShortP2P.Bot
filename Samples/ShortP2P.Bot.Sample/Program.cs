@@ -2,6 +2,7 @@ using NLog;
 using NLog.Config;
 using NLog.Extensions.Logging;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
+using ShortP2P.Bot;
 using ShortP2P.Bot.Dal;
 using ShortP2P.Bot.DependencyInjection;
 using ShortP2P.Bot.Http;
@@ -24,6 +25,8 @@ builder.Services.AddSingleton<IRequestLog, SqliteRequestLog>();
 builder.Services.AddSingleton<IBotCertificateStore, SqliteBotCertificateStore>();
 builder.Services.AddSingleton<SqliteMessageKeyStore>();
 builder.Services.AddShortP2PBot();
+builder.Services.Configure<BotHostOptions>(options =>
+    options.Version = builder.Configuration.GetValue("Bot:Version", 1));
 // Prefer the sample SQLite-backed cert over the library auto-generated PFX.
 builder.Services.AddSingleton<IBotCertificateProvider, StoreBackedBotCertificateProvider>();
 
