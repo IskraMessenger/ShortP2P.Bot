@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using ShortP2P.Bot.Commands;
 using ShortP2P.Bot.Http;
 using ShortP2P.Bot.Jobs;
 using ShortP2P.Bot.Messaging;
@@ -30,6 +31,8 @@ public static class ServiceCollectionExtensions
         services.AddOptions<BotHostOptions>();
 
         services.AddSingleton<IBotCertificateProvider, BotCertificateProvider>();
+        services.AddSingleton<BotCommandCatalog>();
+        services.AddSingleton<GetBotCommands>();
 
         services.AddHttpClient(HttpClientNames.MessengerServer, client =>
         {

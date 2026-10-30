@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using ShortP2P.Bot.Commands;
 using ShortP2P.Bot.Contracts.Dtos;
 using ShortP2P.Bot.Dal;
 using ShortP2P.Bot.Messaging;
@@ -17,6 +18,7 @@ internal sealed class EchoBotService : BackgroundService
     private readonly IBotCertificateStore _certificates;
     private readonly SqliteMessageKeyStore _messageKeys;
     private readonly SampleBotOptions _options;
+    private readonly GetBotCommands _botCommands;
     private readonly ILogger<EchoBotService> _logger;
     private string _privateKeyJson = "";
 
@@ -27,6 +29,7 @@ internal sealed class EchoBotService : BackgroundService
         IBotCertificateStore certificates,
         SqliteMessageKeyStore messageKeys,
         IOptions<SampleBotOptions> options,
+        GetBotCommands botCommands,
         ILogger<EchoBotService> logger)
     {
         _messenger = messenger ?? throw new ArgumentNullException(nameof(messenger));
@@ -35,6 +38,7 @@ internal sealed class EchoBotService : BackgroundService
         _certificates = certificates ?? throw new ArgumentNullException(nameof(certificates));
         _messageKeys = messageKeys ?? throw new ArgumentNullException(nameof(messageKeys));
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
+        _botCommands = botCommands ?? throw new ArgumentNullException(nameof(botCommands));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -45,6 +49,11 @@ internal sealed class EchoBotService : BackgroundService
         {
             var serverUri = RequireServerUri();
             RequireBotIdentity();
+            var listed = _botCommands.Execute(new GetBotCommandsQuery(_options.Bot.NetworkId.Trim()));
+            _logger.LogInformation(
+                "Loaded {CommandCount} commands for {BotNetworkId}",
+                listed.Commands.Count,
+                listed.BotNetworkId);
             var certificate = _certificates.GetOrCreate(_options.Bot.Name);
             var keys = EnsureMessageKeys();
             _privateKeyJson = keys.PrivateJson;
@@ -194,11 +203,25 @@ internal sealed class EchoBotService : BackgroundService
                 text = MessageText.Decode(message.EncryptedMessageBase64);
             }
 
-            var reply = MessageText.ReplyTo(text);
-            _logger.LogInformation(
-                "Received message from {ClientNetworkId}: {Text}",
-                message.NetworkId,
-                text);
+            var inspection = _botCommands.Inspect(text);
+            string reply;
+            if (inspection.IsCommand && !inspection.IsAccepted)
+            {
+                reply = inspection.RejectionMessage ?? BotCommandRejection.Code;
+                _logger.LogWarning(
+                    "Rejected command from {ClientNetworkId} with {RejectionCode}: {Text}",
+                    message.NetworkId,
+                    inspection.RejectionCode,
+                    text);
+            }
+            else
+            {
+                reply = MessageText.ReplyTo(text);
+                _logger.LogInformation(
+                    "Received message from {ClientNetworkId}: {Text}",
+                    message.NetworkId,
+                    text);
+            }
 
             await _requests.AddAsync(new IncomingRequest
             {

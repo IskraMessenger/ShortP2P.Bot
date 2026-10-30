@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using ShortP2P.Bot;
 using ShortP2P.Bot.Dal;
 using ShortP2P.Bot.DependencyInjection;
 using ShortP2P.Bot.Http;
@@ -27,6 +28,7 @@ internal static class BotTestHost
                 "bot.pfx");
             configureCertificate?.Invoke(options);
         });
+        services.Configure<BotHostOptions>(options => options.RequireCommandsFile = false);
         return (services.BuildServiceProvider(), servers);
     }
 

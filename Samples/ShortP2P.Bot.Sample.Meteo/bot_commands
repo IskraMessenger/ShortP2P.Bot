@@ -1,0 +1,26 @@
+[
+  {
+    "command": "/start",
+    "args": null,
+    "description": "Start the weather bot"
+  },
+  {
+    "command": "/stop",
+    "args": null,
+    "description": "Stop the session"
+  },
+  {
+    "command": "/lang",
+    "args": [
+      { "argName": "code", "argType": "string" }
+    ],
+    "description": "Set the reply language"
+  },
+  {
+    "command": "/weather",
+    "args": [
+      { "argName": "place", "argType": "string" }
+    ],
+    "description": "Current weather for a place or coordinates"
+  }
+]
